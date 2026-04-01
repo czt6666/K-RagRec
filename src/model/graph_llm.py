@@ -1,7 +1,6 @@
 import contextlib
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast as autocast
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch_scatter import scatter
 from src.model.gnn import load_gnn_model
@@ -24,6 +23,27 @@ EOS = '</s>'
 IGNORE_INDEX = -100
 
 
+def hf_llm_load_kwargs(
+    per_gpu_mem_gib = None,
+) -> dict:
+    """HuggingFace `from_pretrained` 通用加载参数：动态按 GPU 数量与显存构造 max_memory。"""
+    out = {"revision": "main", "device_map": "auto"}
+    if not torch.cuda.is_available():
+        return out
+    n = torch.cuda.device_count()
+    if n == 0:
+        return out
+    if per_gpu_mem_gib is not None:
+        max_memory = {i: f"{per_gpu_mem_gib}GiB" for i in range(n)}
+    else:
+        max_memory = {
+            i: f"{round(torch.cuda.get_device_properties(i).total_memory / (1024 ** 3))}GiB"
+            for i in range(n)
+        }
+    out["max_memory"] = max_memory
+    return out
+
+
 class GraphLLM(torch.nn.Module):
 
     def __init__(
@@ -37,11 +57,7 @@ class GraphLLM(torch.nn.Module):
         self.model_name = args.llm_model_name
 
         print('Loading LLAMA')
-        kwargs = {
-            "max_memory": {0: '48GiB', 1: '48GiB'},
-            "device_map": "auto",
-            "revision": "main",
-        }
+        kwargs = hf_llm_load_kwargs()
 
         self.tokenizer = AutoTokenizer.from_pretrained(args.llm_model_path, use_fast=False, revision=kwargs["revision"])
         self.tokenizer.pad_token_id = 0
@@ -103,15 +119,12 @@ class GraphLLM(torch.nn.Module):
     def device(self):
         return list(self.parameters())[0].device
 
-    def maybe_autocast(self, dtype=torch.bfloat16):
-        # if on cpu, don't use autocast
-        # if on gpu, use autocast with dtype if provided, otherwise use torch.float16
-        enable_autocast = self.device != torch.device("cpu")
-
-        if enable_autocast:
-            return torch.cuda.amp.autocast(dtype=dtype)
-        else:
+    def maybe_autocast(self, dtype=None):
+        if dtype is None:
+            dtype = getattr(self.model, "dtype", torch.float16)
+        if self.device == torch.device("cpu"):
             return contextlib.nullcontext()
+        return torch.amp.autocast("cuda", dtype=dtype)
 
   
 

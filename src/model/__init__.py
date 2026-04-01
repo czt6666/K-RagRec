@@ -1,4 +1,4 @@
-from src.model.graph_llm_for_one_GPU import GraphLLM
+from src.model.graph_llm import GraphLLM
 
 
 load_model = {
