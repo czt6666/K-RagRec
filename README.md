@@ -30,6 +30,9 @@ To run K-RagRec on MovieLens-1M with threshold $p=50%$, retrieve knowledge sub-g
 
 ```
 python train.py --model_name graph_llm --llm_model_name 7b --llm_frozen True --dataset ml1m --batch_size 5 --gnn_model_name gt --gnn_num_layers 4 --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 
+python train.py --model_name graph_llm --llm_model_path "D:\hf_cache\hub\models--meta-llama--Llama-2-7b-hf\snapshots\01c7f73d771dfac7d292323805ebc428287df4f9" --llm_frozen True --dataset ml1m --batch_size 5 --gnn_model_name gt --gnn_num_layers 4 --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 
+python train.py --model_name graph_llm --llm_model_path "/data/hf_cache/hub/models--meta-llama--Llama-2-7b-hf/snapshots/01c7f73d771dfac7d292323805ebc428287df4f9" --llm_frozen True --dataset ml1m --batch_size 5 --gnn_model_name gt --gnn_num_layers 4 --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 
+
 ```
 
 **For evaluation:**
@@ -43,7 +46,7 @@ or you can run:
 ```
 bash run.sh
 ```
-
+ 
 ## **Extend:**
 
 - If you want to run K-RagRec on other datasets, you should first process the datasets, and change the datasets name. We provide 3 datasets in our environment.

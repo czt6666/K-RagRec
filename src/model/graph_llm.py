@@ -56,8 +56,8 @@ class GraphLLM(torch.nn.Module):
         self.max_new_tokens = args.max_new_tokens
         self.model_name = args.llm_model_name
 
-        print('Loading LLAMA')
         kwargs = hf_llm_load_kwargs()
+        print('Loading LLAMA kwargs:\n', kwargs)
 
         self.tokenizer = AutoTokenizer.from_pretrained(args.llm_model_path, use_fast=False, revision=kwargs["revision"])
         self.tokenizer.pad_token_id = 0

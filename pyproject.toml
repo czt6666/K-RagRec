@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.9"
 dependencies = [
+    "sentencepiece>=0.1.99",
     "gensim>=4.4.0",
     "pandas>=2.3.3",
     "pcst-fast>=1.0.10",
