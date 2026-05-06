@@ -42,11 +42,24 @@ Three datasets are supported: MovieLens-1M, MovieLens-20M, Amazon Book. Only ML1
 
 Processed ML1M + KG: https://drive.google.com/file/d/1MlEPkRj47WrdXECUiz5D6Ie1oMv4hKC9/view
 
-## Running the Baseline (PowerShell)
+## Running the Baseline
+
+> **Reproducing on a server?** See `tools/server_checklist.md` for the full Linux/bash runbook (uv install, dependency pinning, smoke test, tmux long-train tips, expected paper numbers).
+>
+> The PowerShell snippets below are for local dev / smoke checks. LLaMA-2-7B does not fit on consumer GPUs in fp16 — full training requires the server.
 
 All commands assume the repo root (`K-ragrec/`) as the working directory. `dataset/` paths inside the code are resolved relative to cwd, so do NOT `cd` into `methods/baseline/`.
 
 `PYTHONPATH` is set to `methods/baseline` so that `from src.model import ...` resolves correctly.
+
+### Retrieval-only smoke test (no LLM, runs anywhere)
+
+```powershell
+$env:PYTHONPATH = "methods/baseline"
+python tools/smoke_retrieval.py
+```
+
+Expected last line: `[OK] Retrieval pipeline smoke test passed.`
 
 ### Train
 
