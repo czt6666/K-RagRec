@@ -69,6 +69,7 @@ def main(args):
                 chunk_size = (len(list) - 1) // batch_size + 1
                 for i in range(chunk_size):
                     yield list[batch_size * i: batch_size * (i + 1)]
+
         params = [p for _, p in model.named_parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(
         [{'params': params, 'lr': args.lr, 'weight_decay': args.wd}, ],

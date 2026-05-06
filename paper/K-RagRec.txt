@@ -1,0 +1,1185 @@
+Knowledge Graph Retrieval-Augmented Generation for LLM-based
+                                Recommendation
+
+                  Shijie Wang1, Wenqi Fan1*, Yue Feng2*, Shanru Lin3,
+                        Xinyu Ma4, Shuaiqiang Wang4, Dawei Yin4,
+
+          1The Hong Kong Polytechnic University, 2University of Birmingham,
+                          3City University of Hong Kong, 4Baidu Inc,
+
+      shijie.wang@connect.polyu.hk; wenqifan03@gmail.com; y.feng.6@bham.ac.uk; lllam32316@gmail.com;
+                        xinyuma2016@gmail.com; shqiang.wang@gmail.com; yindawei@acm.org
+
+                      Abstract                                  (a) Hallucinations                               (b) Lack of Knowledge
+                                                         User
+     Recommender systems have become increas-                                                           User      I have watched {Dune }
+     ingly vital in our daily lives, helping to allevi-                    I have watched {Godfather}
+     ate the problem of information overload across                        What movie do you recommend           What movie do you recommend
+     various user-oriented online services. The                            I watch next?                         I watch next?
+     emergence of Large Language Models (LLMs)
+     has yielded remarkable achievements, demon-                                                LLM                                          LLM
+     strating their potential for the development of
+     next-generation recommender systems. De-                 You may want to watch                      As of December 2022
+     spite these advancements, LLM-based recom-               the movie Godmother ...
+     mender systems face inherent limitations stem-                                                     I don't have knowledge about
+     ming from their LLM backbones, particularly
+     issues of hallucinations and the lack of up-to-                                                     Dune ...
+     date and domain-specific knowledge. Recently,
+     Retrieval-Augmented Generation (RAG) has                  (c) KG RAG for LLM Recommendation
+     garnered significant attention for addressing
+     these limitations by leveraging external knowl-     User                                                    Knowledge Sub-graphs
+     edge sources to enhance the understanding and
+     generation of LLMs. However, vanilla RAG                   I have watched {Dune }                  Augment  act_by             Timmy    Context
+     methods often introduce noise and neglect                                                                   acatc_tb_byyis is  Romance
+     structural relationships in knowledge, limiting           What movie do you recommend
+     their effectiveness in LLM-based recommenda-              I watch next?
+     tions. To address these limitations, we propose
+     to retrieve high-quality and up-to-date structure                             LLM                                                        Vector
+     information from the knowledge graph (KG)                                                                                               Database
+     to augment recommendations. Specifically,           Based on your watching                                                     Science
+     our approach develops a retrieval-augmented         history, I recommend you                                is
+     framework, termed K-RagRec, that facilitates        to watch Interstellar.
+     the recommendation generation process by in-                                                                Retrieve
+     corporating structure information from the ex-
+     ternal KG. Extensive experiments have been          Figure 1: Illustration of the issues of hallucinations
+     conducted to demonstrate the effectiveness of       and lack of domain-specific knowledge in LLM-based
+     our proposed method.                                recommender systems and how they can be addressed by
+                                                         knowledge graph retrieval-augmented generation (KG
+1 Introduction                                           RAG).
+
+Recommender systems, as techniques designed to           breakthroughs, which further drive developments
+assist people in making decisions in their daily         in various domains (Fan et al., 2024b; Zhao et al.,
+lives, are increasingly gaining impact in various        2024; Wu et al., 2023a). Especially with the suc-
+fields (Kenthapadi et al., 2017; He et al., 2020;        cess of LLMs, recommender systems have seen
+Fan et al., 2019), such as online shopping, job          rapid growth (Geng et al., 2022; Bao et al., 2023;
+matching, and social media. Recently, Large Lan-         Qu et al., 2024). By training on a wide range of
+guage Models (LLMs) have achieved significant            data, LLMs (e.g., GPT-4 (Achiam et al., 2023)
+                                                         and LLaMA (Touvron et al., 2023)) are able to
+    *Corresponding authors                               acquire extensive knowledge and demonstrate ex-
+                                                         ceptional language understanding capability. This
+                                                         capability enables LLM-based recommender sys-
+                                                         tems to capture user preferences through a nu-
+                                                         anced understanding of relevant attributes (e.g.,
+                                                         user profiles, item descriptions, historical inter-
+                                                         actions) for more accurate recommendations. As
+                                                         a result, LLM-based recommender systems have
+                                                         emerged as a new paradigm in recommendation
+                                                         technology (Zhao et al., 2024).
+
+                                                            However, despite their powerful language un-
+                                                         derstanding and generalization capability, LLM-
+                                                         based recommender systems face significant chal-
+                                                         lenges, including hallucinations and lack of up-to-
+                                                         date and domain-specific knowledge (Luo et al.,
+                                                         2023). Specifically, one key issue is that LLM-
+
+                                                                27152
+
+Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 27152­27168
+                                     July 27 - August 1, 2025 ©2025 Association for Computational Linguistics
+based recommender systems may generate recom-           which can provide a faithful knowledge source for
+mendations that are entirely fictional due to the       recommendations. As shown in Figure 1 (c), re-
+inherent limitations of LLMs. For example, an           trieving structured knowledge from the KG can
+LLM-based recommender system may recommend              significantly enhance the recommendation capabil-
+"Godmother", a non-existent film, to the user who       ities of LLM-based recommender systems.
+has watched "The Godfather", as illustrated in Fig-
+ure 1 (a). Additionally, LLMs usually lack up-to-          However, it is challenging to effectively retrieve
+date knowledge, which can prevent them from rec-        KGs to enhance the recommendation capabilities
+ommending the latest films or products in a timely      of LLMs. First, KGs store rich factual knowl-
+manner. As illustrated in Figure 1 (b), the LLM-        edge in a structured format. Simply retrieving the
+based recommender system is unable to recom-            triplets or first-order neighbors of an entity (i.e.,
+mend the latest films due to the training data only     item) with semantic information neglects the im-
+containing up to December 2022. Furthermore,            portance of these higher-order neighborhood ef-
+LLMs often lack domain-specific knowledge, as           fects among entities/items, resulting in sub-optimal
+recommendation-oriented corpora are very limited        recommendation performance. Second, indiscrimi-
+during the training phase of LLMs (Geng et al.,         nate retrieving for each item, regardless of whether
+2022). Consequently, LLMs may struggle to meet          the retrieval is necessary or the content is relevant,
+the nuanced needs of recommendation tasks. To           can degrade the performance of the recommen-
+alleviate these issues, one potential solution is to    dation while severely reducing the model's effi-
+frequently fine-tune the LLMs with up-to-date and       ciency (Asai et al., 2023; Labruna et al., 2024).
+domain-specific knowledge. However, the mas-            Furthermore, structured data in KGs is typically en-
+sive parameters of LLMs make this process com-          coded for LLM in the form of serialized text (Wu
+putationally expensive and time-consuming, which        et al., 2023b; Sun et al., 2023), which is insuffi-
+severely hinders the practical application in the real  cient for fully exploiting the structural information
+world.                                                  inherent in the data (Perozzi et al., 2024; Fatemi
+                                                        et al., 2023). Therefore, it is crucial to explore more
+   More recently, Retrieval-Augmented Generation        effective and expressive ways of representing struc-
+(RAG) leveraging external databases to provide          tured data, allowing LLMs to effectively leverage
+specific knowledge shows promise to solve these         the structure information of retrieved knowledge
+problems (Fan et al., 2024a; Gao et al., 2023). By      sub-graphs for recommendations.
+incorporating an external knowledge base, RAG
+can retrieve relevant and up-to-date information           To address the aforementioned challenges, in
+to complement the LLM's inherent knowledge,             this paper, we propose a knowledge retrieval-
+thereby mitigating the issues of hallucinations and     augmented recommendation framework, namely K-
+knowledge gaps (Khandelwal et al., 2019; Min            RagRec, to provide up-to-date and reliable knowl-
+et al., 2020; Li et al., 2024). This makes RAG          edge by retrieving relevant knowledge from item's
+a promising technique for enabling LLMs to pro-         KGs for recommendation generation in the era of
+vide effective recommendations without the need         LLMs. Specifically, our proposed framework first
+for costly fine-tuning (Ram et al., 2023).              performs knowledge sub-graph indexing on the
+                                                        items' KG at a coarse and fine granularity to con-
+   Despite this potential, vanilla RAG methods that     struct the knowledge vector database. Next, a pop-
+rely on documents and paragraphs often introduce        ularity selective retrieval policy is designed to de-
+unnecessary noise and even harmful disturbance,         termine which items should be retrieved, followed
+which can negatively impact the accuracy and relia-     by the retrieval of specific sub-graphs from the
+bility of recommendations (He et al., 2024). In ad-     knowledge vector database. To refine the quality
+dition, the structural relationships between entities   of retrieval and ensure the most relevant results are
+are overlooked in typical RAG, resulting in the sub-    prioritized at the top of the input, we subsequently
+optimal reasoning capability of LLM-based rec-          re-rank the retrieved knowledge sub-graphs. Fi-
+ommender systems (Luo et al., 2023). To address         nally, we introduce a GNN and projector to align
+the limitations, a prospective solution is to incor-    the retrieved knowledge sub-graphs into the seman-
+porate structured knowledge such as items' knowl-       tic space of the LLM for knowledge-augmented
+edge graph (KG) to help improve recommendation          recommendation. The main contributions of this
+performance. Specifically, KGs offer structured,        paper can be summarized as follows:
+factual, and editable representations of knowledge,     · We propose a novel framework that retrieves
+
+27153
+  faithful knowledge from KGs to augment the           To fill this gap, we propose to retrieve knowledge
+  recommendation capability of LLM. Note that          sub-graphs from KGs to enhance the recommenda-
+  we introduce a flexible indexing method for KGs,     tion performance of LLM. We provide more com-
+  which can provide a comprehensive view of a          prehensive related work on Appendix A.3.
+  node's neighborhood within KG.
+· We design a popularity selective retrieval strat-    3 Methodology
+  egy to determine whether an item needs to be
+  retrieved based on its popularity, significantly     In this section, we first introduce some key nota-
+  improving efficiency.                                tions and concepts in this work. Then, we provide
+· We introduce a more expressive graph encoder         the details for each component of our proposed
+  for structured data inclusion in LLMs, that can fa-  framework K-RagRec.
+  cilitate the LLM to effectively leverage the struc-
+  ture information and avoid long context input.       3.1 Preliminary
+· We conduct comprehensive experiments on vari-
+  ous real-world datasets to evaluate the effective-   Knowledge Graph: In this work, we propose to
+  ness of the proposed K-RagRec framework.             leverage external knowledge databases (i.e., KGs)
+
+2 Related Work                                         to augment LLMs for recommendations. KGs con-
+
+Recently, RAG has emerged as one of the most           tain abundant factual knowledge in the form of a
+representative technologies in the field of genera-
+tive AI, combining the strengths of retrieval sys-     set of triples: G = {(n, e, n) | n, n  N , e 
+tems and language models (LM) to produce co-
+herent and informative text. Early methods, such       E}, where N and E denote the set of entities
+as REALM (Guu et al., 2020), RETRO (Borgeaud
+et al., 2022), and DPR (Karpukhin et al., 2020), typ-  and relations, respectively. For example, a triple
+ically involve retrieving relevant fragments from a    Interstellar -d-ir-e-ct-e-d_-by N olan indicates that
+large corpus to guide the LM generation. However,
+standard RAG methods often struggle to accurately      the movie "Interstellar" was directed by the direc-
+retrieve all relevant textual chunks, due to unnec-
+essary noise and even harmful disturbance in the       tor "Nolan".
+documents. To address these limitations, recent
+studies (Baek et al., 2023; Wu et al., 2023b; He       LLM-based Recommendations: Let U =
+et al., 2024; Luo et al., 2023; Wang et al., 2023;     {u1, u2, . . . , un} and V = {v1, v2, . . . , vm} repre-
+Sen et al., 2023; Sun et al., 2023) focus on re-       sent the sets of users and items, where n and m are
+trieving structured and faithful knowledge from
+graphs for enhancing generations. For example,         the sizes of users and items, respectively. The goal
+Retrieve-Rewrite-Answer (Wu et al., 2023b) re-
+trieves relevant sub-graphs from KG and converts       of an LLM-based recommender system is to under-
+retrieved sub-graphs into text for the generation.
+G-Retriever (He et al., 2024) explores retrieving      stand users' preferences by modeling users' histor-
+sub-graphs from various types of graphs to alleviate   ical items interactions V ui = [v1ui,  v2ui , ·      ,invt|ueLiruaic|]-
+the hallucinations of LLM.                             (e.g., clicks, bought, etc.), where    |Lui |    ··
+                                                                                                        is
+   With the explosion of LLMs in recommenda-
+tions, a few works (Di Palma, 2023; Wu et al.,         tion sequence length for user ui. Notably, item
+2024; Ang et al., 2024) make initial explorations      vj' side information, such as title and description,
+in RAG for recommendations. For instance, the          is publicly available to enhance LLM for model-
+work (Di Palma, 2023) proposes leveraging knowl-
+edge from movie or book datasets to enhance rec-       ing user preferences. In our setting, we consider
+ommendations. Nevertheless, retrieving faithful
+structured knowledge from the KGs for recommen-        asking the LLM to select user u's preferred item
+dations is under-explored and shows great potential.
+                                                       v from the candidate set C = {vj}M j=1, where M
+                                                       is the number of candidate items. The candidate
+
+                                                       set C typically consists of one positive sample as
+
+                                                       well as M - 1 negative samples. Specifically, for
+
+                                                       a frozen LLM f with parameters , we denote an
+                                                       input-output sequence pair as (Q, A), where Q is
+
+                                                       the recommendation query/prompt, which consists
+
+                                                       of task descriptions and users' historical items. The
+
+                                                       output A is the LLM's prediction. Furthermore, we
+
+                                                       introduce the concept of GNNs in appendix A.2.
+
+                                                       3.2 The Overview of Proposed Method
+
+                                                       As shown in Figure 2, our proposed K-RagRec con-
+                                                       sists of five crucial components: Hop-Field Knowl-
+                                                       edge Sub-graphs for Semantic Indexing, Popularity
+                                                       Selective Retrieval Policy, Knowledge Sub-graphs
+
+27154
+Retrieval, Knowledge Sub-graphs Re-Ranking, and                                          ing the l-hop neighbors of itself. Therefore, we can
+
+Knowledge-augmented Recommendation. The                                                  express the knowledge sub-graph representation
+model first performs indexing of hop-field knowl-                                        of go  G as zgo, where G is the set containing
+edge sub-graphs within the KG. Following this, a                                         all the knowledge sub-graphs. For each sub-graph,
+popularity selective retrieval policy is implemented
+to determine which items should be retrieved or                                          we store its representation in a knowledge vector
+augmented. The model then retrieves specific sub-
+graphs from the knowledge vector database. Sub-                                          database.
+sequently, the retrieved knowledge sub-graphs are
+re-ranked to refine the retrieval quality. Finally, the                                  3.4 Popularity Selective Retrieval Policy
+retrieved knowledge sub-graphs are utilized with
+the original prompt to generate recommendations.                                         Although RAG can augment the LLM for model-
+                                                                                         ing user preferences with retrieved knowledge, re-
+3.3 Hop-Field Knowledge Sub-graphs for                                                   trieving each item can cost a significant amount of
+      Semantic Indexing                                                                  retrieval time, which can severely degrade the user
+                                                                                         experience and cause user churn. Meanwhile, most
+Typically, retrieving knowledge from KG chunks                                           users' online behaviours in recommender systems
+                                                                                         are following the power law distribution (Abdol-
+the KG into nodes (He et al., 2024) or triplets (Luo                                     lahpouri et al., 2017; Celma and Herrera, 2008) in
+                                                                                         which a small proportion (e.g., less than 20%) of
+et al., 2023) and only retrieves content locally                                         items (i.e., popular items) often account for a large
+                                                                                         proportion of users' online behaviours (e.g., more
+around the target entity in the KG. However, these                                       than 80%), while cold-start items have a few inter-
+                                                                                         actions from users. Therefore, most models tend to
+methods just naively retrieve the first-order neigh-                                     keep rich knowledge of popular items, resulting in
+                                                                                         an inferior performance for cold-start items (Zhao
+bors of an entity (i.e., item), which makes it difficult                                 et al., 2023). To this end, we design a popularity
+                                                                                         selective retrieval policy to determine whether an
+to capture these higher-order neighborhood effects                                       item needs to be augmented from KG based on
+                                                                                         its popularity (e.g., sales volume and page view).
+among entities/items in the recommendation pro-                                          Particularly, the item is retrieved if its popularity is
+                                                                                         less than the pre-defined threshold p, otherwise not.
+cess. Therefore, to effectively retrieve knowledge                                       By incorporating this strategy, the retrieval time in
+                                                                                         K-RagRec can be significantly reduced to achieve
+from the KG, we propose performing semantic in-                                          more efficient retrieval.
+
+dexing on hop-field knowledge sub-graphs, which
+
+can flexibly chunk KGs and provide a comprehen-
+
+sive view of a node's neighborhood in KG. As
+
+illustrated in Figure 2 component 1, we first intro-
+
+duce a pre-trained language model (PLM), such
+
+as SentenseBert (Reimers, 2019), to capture the
+
+semantic information for node no as follows:
+
+           zno = PLM(xno )  Rd,                                 (1)                      3.5 Knowledge Sub-graphs Retrieval
+
+where d is the dimension of the output represen-                                         Given the query for knowledge sub-graphs retrieval,
+
+tation. Similarly, we also capture the semantic                                          we adopt the same PLM as the first indexing step to
+
+information for edge/relation eo in KG:                                                  ensure that the query is in the consistent embedding
+
+           reo = PLM(xeo )  Rd,                                 (2)                      space as the knowledge sub-graph representation.
+
+where xno and xeo are the text attributes (e.g.,                                         We define the text attribute (e.g., item's title and
+item's title and descriptions) of node no and
+edgTeo/rreeltartiieovneenou, arnescpeedcktinveolwy.ledge of both coarse                  descriptions) xqj of the item vj that needs to be
+and fine graph structures from KG, we introduce a                                        retrieved as the query and obtain its semantic infor-
+aGgNgrNeg(ai.tee.,inGfoNrNmIan1tdieoxningf(r·o)mwnitehigphabroamrseftoerrsent1it)ietso,
+                                                                                         mation qj as:
+
+                                                                                                        qj = PLM(xqj )  Rd.               (4)
+
+                                        z(nlo)                                           Next, we retrieve the top-K most similar sub-
+
+where the  ldthef-ihnoepdebmyb: edding          of  a  central  entity                   graphs Gj = {g1 , ..., gK } from G for item vj:
+no can be
+
+znl o  =  GNNIn1dexing ({z(nlm -1) ,  r(l-1)    :  nm  N (no)}),                                  Gj = argtopKgG sim qj, zg , (5)
+                                                                      (3)
+                                        e<o,m>                                           where sim(·, ·) is a similarity metric for measuring
+                                                                                         the similarity between the query representation qj
+where N (no) is the set of neighbours of node no,                                        and knowledge sub-graph g's representation zg in
+and e<o,m> is the edge between node no and nm.                                           knowledge vector database. Finally, the retrieved
+For each entity, its l-hop representation can be seen
+
+as a knowledge sub-graph representation contain-
+
+                                                                27155
+1. Hop-Field Knowledge Sub-graphs for Semantic Indexing                                                        4. Knowledge Sub-graphs Re-Ranking
+
+Knowledge Graph for Items                                                                           Semantic   Retrieved Knowledge Sub-graphs
+                                                                                         node Information
+                                                              node attributes
+
+Movies            Other Entities edge attributes                                    PLM  edge                                                          ...                              ...
+
+        peprfeorirfsmoisr_cmoinn_tinainCartEoonngl(isghenre)  GNNIndexing       GNNIndexing ...  GNNIndexing   Re-ranked Knowledge Sub-graphs
+                                                                   Layer            Layer            Layer
+
+                                                              1-hop            2-hop             l-hop
+
+         contain  War (tag)
+
+                                                                                                                                                                                        ...
+
+         show     Bomb (actor)                                Knowledge Vector
+
+                                                              Database
+
+2. Popularity Selective Retrieval Policy                                                                       5. Knowledge-augmented Recommendation
+
+ User Historical Interactions                                                  {movie_1 <RET>, ... , movie_5}  GNNEncoding
+
+ {movie_1, ... , movie_5}
+
+3. Knowledge Sub-graphs Retrieval                                                                                                                           Prompt (Query): What is the top recommended
+                                                                                                                                                            movie for user_63 who watched {movie_1, ..., }?
+
+movie_j                                                                        PLM
+                                                                                                                                            Projector
+
+Retrieved Knowledge Sub-graphs
+
+         ...                                                                   ...                    ...                                                   Large Language Model (LLM)
+
+                                                                                                               Response: The user may want to watch the movie_*, because ...
+
+Figure 2: The overview of the K-RagRec. It contains five key components: Hop-Field Knowledge Sub-graphs for
+Semantic Indexing, Popularity Selective Retrieval Policy, Knowledge Sub-graphs Retrieval, Knowledge Sub-graphs
+Re-Ranking, and Knowledge-augmented Recommendation.
+
+knowledge sub-graphs for items required to be re-                                                     information:
+trieved from user ui's historical interactions V ui
+will be used to form a knowledge sub-graph set G.                                                             hg^ = GNNEn2coding({g^ : g^  G^}). (7)
+                                                                                                         An MLP projector MLP with parameter  is fur-
+3.6 Knowledge Sub-graphs Re-Ranking                                                                   ther introduced to shift to mapping all sub-graphs
+                                                                                                      embedding in G^ into the LLM embedding space:
+To refine the quality of retrieval for enhancing rec-
+
+ommendation performance, the next crucial step is                                                              h^G^ = MLP([hg^1 ; ...; hg^N ]),                                                              (8)
+
+knowledge sub-graphs re-ranking. Feeding all re-                                                      where [.; .] represents the concatenation operation.
+                                                                                                      The extracted knowledge sub-graphs embedding
+trieved knowledge sub-graphs g  G directly into                                                       hi^nG^puatsttohkeensoefmt pbreodmdpintgisinthLenLMap.pended before the
+LLM can lead to information overload if the user ui
+has a long historical interaction list towards items.
+
+Therefore, we execute re-ranking to shorten the re-
+
+trieved knowledge sub-graphs and ensure the most                                                      3.8 Optimization for K-RagRec
+
+relevant knowledge sub-graphs are prioritized at the                                                  The training process can be broadly considered as
+                                                                                                      soft prompt tuning, where the retrieved knowledge
+top of the prompt. Specifically, we adopt the recom-                                                  sub-graphs are a series of soft graph prompts. For-
+                                                                                                      mally, the generation process can be expressed as
+mendation prompt as a query for re-ranking, which                                                     follows:
+consists of task descriptions and users' historical
+items. For example, this recommendation prompt                                                                                                              r
+can be "What is the top recommended movie for the
+                                                                                                           p,,1,2 (Y | G^, xq) =                                 p,,1,2 (yk | y<k, h^G^ , xq).
+
+user who watched {Matrix, ..., Iron Man}?". For                                                                                                             k=1                                              (9)
+
+consistency, we adopt the same PLM to capture                                                                  Therefore, instead of fine-tuning the LLM model
+
+the semantic information of the above prompt as                                                       extensively, we only learn parameters of two
+p, and re-rank the knowledge sub-graphs in G to                                                       GtoNr MNsL(Pi.e,.,wGhNilNe Ipn1aderxaimnge, tGerNsNEon2fcoLdiLngM) abnadcpkrboojence-
+obtain a Top-N knowledge sub-graphs set G^:                                                           are frozen. We update the parameters 1, 2 and 
+                                                                                                      through the Cross-Entropy Loss L(Y, A), where Y
+        G^ = argtopNg G sim p, zg .                                                              (6)
+
+3.7 Knowledge-augmented Recommendation                                                                is the ground-truth and A is LLM's prediction.
+
+To facilitate the LLM's better understanding of the                                                   4 Experiment
+
+structure of retrieved knowledge sub-graphs and to                                                    In this section, we evaluate the effectiveness of our
+                                                                                                      proposed framework through comprehensive exper-
+avoid long contexts, we further integrate another                                                     iments. First, we present the experimental settings,
+eGnNhNanceenctohdeerrepGrNesNenEn2tacotidoinng
+                                                              with parameter 2 to
+                                                              learning of structural
+
+                                                                                                 27156
+including details about the datasets, compared base-    proaches augmented by retrieval, including Prompt
+lines, evaluation metrics, and the parameter config-    Tuning with KG-Text (PT w/ KG-Text), GraphTo-
+urations. Then, we report the main experimental         ken (Perozzi et al., 2024) with retrieval (GraphTo-
+results, highlighting the performance of the pro-       ken w/ RAG) as well as G-retriever (He et al., 2024).
+posed framework compared with various baseline          Additionally, we evaluate our method against Lora
+methods. Finally, we analyze the contributions of       Fine-tuning with retrieval (Lora w/ KG-Text) (Hu
+individual model components and the impact of           et al., 2021).
+parameters used in our framework. We also assess
+the generalizability of K-RagRec in the zero-shot       4.1.3 Evaluation Metrics
+setting. We present the generalizability study in
+Appendix A.7.                                           To evaluate the effectiveness of our K-RagRec
+                                                        framework, we employ two widely used evalua-
+4.1 Experimental Settings                               tion metrics: Accuracy (ACC), and Recall@k (He
+                                                        et al., 2020). We present results for k equal to 3,
+4.1.1 Datasets                                          and 5. Inspired by recent studies (Zhang et al.,
+                                                        2024; Hou et al., 2022), we adopt the leave-one-
+To evaluate the performance of our K-RagRec             out strategy for evaluation. Specifically, for each
+framework, we adopt three real-world datasets.          user, we select the last item that the user inter-
+MovieLens-1M1 is a dataset containing approx-           acted with as the target item and the 10 interaction
+imately one million movie ratings and textual de-       items prior to the target item as the historical in-
+scriptions of movies (i.e., "title"). MovieLens-        teractions. Then, we leverage LLM to predict the
+20M2 is a large-scale movie ratings dataset encom-      user's preferred item from a pool of 20 candidate
+passing over 20 million ratings from more than          items (M = 20), which contains one target item
+138,000 users on 27,000 movies. Amazon Book3            with nineteen randomly sampled items. For trained
+is a book recommendation dataset that records           models (including prompt tuning and fine-tuning),
+more than 10 million user ratings of books and          we compute Recall@k by extracting the probability
+the titles of the books. In addition, we adopt the      assigned to each item and evaluating the model's
+popular knowledge graph Freebase4 and filter out        ability to rank the target item within the top-k pre-
+the triples related to the three datasets to recon-     dictions. In addition, we also conduct comparison
+struct the KG. The statistics of these three datasets   experiments with 10 candidate items (M = 10) as
+and KG are presented in Table 3.                        shown in Appendix A.5.
+
+4.1.2 Baselines                                         4.1.4 Parameter Settings
+
+In the realm of LLM-based recommendation re-            We implement the framework on the basis of Py-
+search, our work pioneers the investigation of re-      Torch and conduct the experiments on 2 NVIDIA
+trieving knowledge from KGs to enhance the rec-         A6000-48GB GPUs. We adopt the SentenceBert
+ommendation capabilities of LLMs. Therefore, to         to encode entities, relations, and query attributes.
+evaluate the effectiveness, we compare our pro-         We use the 3 layers Graph Transformer as the
+posed framework with a series of meticulously           GNNIndexing and GNNEncoding for MovieLens-1M
+crafted KG RAG-enhanced LLM recommendation              and 4 layers for MovieLens-20M and Amazon
+baselines. We first include two typical inference-      Book. The layer dimension is set to 1024, and
+only methods Retrieve-Rewrite-Answer (Wu et al.,        the head number is set to 4. The popularity selec-
+2023b) (KG-Text) and KAPING (Baek et al., 2023),        tive retrieval policy threshold p is set to 50%. For
+where the former retrieves sub-graphs and textu-        each item that needs to be retrieved, we retrieve
+alizes them, and the latter retrieves triples. We       the top-3 most similar sub-graphs. The re-ranking
+exclude some knowledge reasoning path-based ap-         knowledge sub-graph number N is set to 5. More
+proaches (Luo et al., 2023), as it is difficult to re-  experiment details are shown in Appendix A.1.
+trieve faithful knowledge reasoning paths solely        We also present several prompt examples in Ap-
+from the user's interaction items. Next, we com-        pendix A.12.
+pare K-RagRec with various prompt-tuning ap-
+
+1https://grouplens.org/datasets/movielens/1m/        4.2 Overall Performance Comparison
+2https://grouplens.org/datasets/movielens/20m/
+3https://jmcauley.ucsd.edu/data/amazon/              We compare the recommendation performance of
+4https://developers.google.com/freebase              K-RagRec with various baselines on three open-
+
+                                                27157
+Table 1: Performance comparison of different KG RAG-enhanced LLM recommendations. The best performance
+
+and the second-best performance are marked in red and blue, respectively. ACC and R@k denote Accuracy and
+Recall@k, respectively.
+
+ Models                                 Methods                             MovieLens-1M         MovieLens-20M        Amazon Book
+                  Inference-only
+                                           KG-Text (Wu et al., 2023b)       ACC R@3 R@5          ACC R@3 R@5          ACC R@3 R@5
+LLama-2 Frozen LLM w/ PT                  KAPING (Baek et al., 2023)
+                                                                            0.076  -      -      0.052  -       -     0.058  -      -
+                    Fine-tuning                   PT w/ KG-Text
+                  Inference-only  GraphToken w/ RAG (Perozzi et al., 2024)  0.079  -      -      0.069  -       -     0.063  -      -
+LLama-3 Frozen LLM w/ PT
+                                           G-retriever (He et al., 2024)    0.078  0.191  0.308  0.051  0.152  0.250  0.074  0.165  0.245
+                    Fine-tuning                      K-RagRec               0.268  0.421  0.466  0.186  0.433  0.576  0.326  0.515  0.624
+                  Inference-only                                            0.274  0.532  0.650  0.342  0.619  0.739  0.275  0.487  0.612
+QWEN2 Frozen LLM w/ PT                             Improvement
+                                                                            0.435  0.725  0.831  0.600  0.850  0.913  0.508  0.690  0.780
+                    Fine-tuning                  Lora w/ KG-Text
+                                                Lora w/ K-RagRec            58.6% 33.0% 27.8%    75.4% 37.3% 23.5%    55.8% 34.0% 25.0 %
+
+                                                   Improvement              0.402 0.718 0.833    0.609 0.848 0.905    0.446 0.648 0.758
+                                                                            0.466 0.770 0.863    0.637 0.872 0.927    0.516 0.720 0.799
+                                           KG-Text (Wu et al., 2023b)
+                                          KAPING (Baek et al., 2023)        15.9% 7.2% 3.6%      4.5% 2.7% 2.4%       15.7% 11.1% 5.4%
+
+                                                  PT w/ KG-Text             0.095  -      -      0.060  -       -     0.054  -      -
+                                  GraphToken w/ RAG (Perozzi et al., 2024)
+                                                                            0.084  -      -      0.069  -       -     0.062  -      -
+                                           G-retriever (He et al., 2024)
+                                                     K-RagRec               0.134  0.294  0.433  0.094  0.205  0.296  0.083  0.207  0.314
+                                                                            0.355  0.622  0.737  0.473  0.719  0.805  0.428  0.567  0.661
+                                                   Improvement              0.352  0.632  0.746  0.502  0.736  0.796  0.417  0.584  0.682
+
+                                                 Lora w/ KG-Text            0.472  0.704  0.765  0.634  0.779  0.818  0.514  0.662  0.723
+                                                Lora w/ K-RagRec
+                                                                            32.9% 11.4% 2.5%     26.3% 5.8% 1.6%      20.0% 13.4% 6.0%
+                                                   Improvement
+                                                                            0.449 0.694 0.750    0.648 0.757 0.790    0.490 0.638 0.698
+                                           KG-Text (Wu et al., 2023b)       0.498 0.712 0.771    0.674 0.786 0.817    0.546 0.672 0.733
+                                          KAPING (Baek et al., 2023)
+                                                                            10.9% 2.6% 2.8%      4.0% 3.8% 3.4%       11.4% 5.3% 5.0%
+                                                  PT w/ KG-Text
+                                  GraphToken w/ RAG (Perozzi et al., 2024)  0.160  -      -      0.174  -       -     0.194  -      -
+
+                                           G-retriever (He et al., 2024)    0.196  -      -      0.208  -       -     0.220  -      -
+                                                     K-RagRec
+                                                                            0.190  0.371  0.499  0.259  0.397  0.494  0.303  0.451  0.553
+                                                   Improvement              0.259  0.487  0.608  0.370  0.550  0.632  0.365  0.568  0.658
+                                                                            0.304  0.551  0.644  0.389  0.606  0.685  0.355  0.552  0.658
+                                                 Lora w/ KG-Text
+                                                Lora w/ K-RagRec            0.416  0.712  0.829  0.586  0.842  0.904  0.502  0.686  0.767
+
+                                                   Improvement              36.8% 29.2% 28.4%    50.6% 38.9% 32.0%    37.5% 20.8% 16.6 %
+
+                                                                            0.400 0.701 0.815    0.601 0.842 0.906    0.478 0.667 0.751
+                                                                            0.466 0.763 0.860    0.631 0.868 0.928    0.510 0.704 0.780
+
+                                                                            16.5% 8.8% 5.5%      5.0% 3.1 % 2.4%      6.7% 5.5% 3.9%
+
+source backbone LLMs: LLama-2-7b (Touvron                                   4.3 Ablation Study
+et al., 2023), LLama-3-8b (Dubey et al., 2024), and
+QWEN2-7b (Yang et al., 2024). We present the                                To evaluate the impact of each component in our
+results in Table 1. From the comparison, we have                            proposed framework, we conduct the ablation study
+the following main observations:                                            to compare the K-RagRec with four ablated vari-
+· Naively retrieve KG and augment LLM with                                  ants on MovieLens and Amazon Book datasets, us-
+                                                                            ing LLama-2-7B as the backbone LLM. Details of
+  text methods (i.e., KG-Text and KAPING),                                  each ablation variant are provided in Appendix A.6.
+  have limited recommendation accuracy on the                               The results are illustrated in Figure 3. Observing
+  MovieLens-1M and MovieLens-20M and Ama-                                   the experiment results, we find that eliminating any
+  zon Book datasets.                                                        component of the framework leads to a decrease in
+· Compared to other prompt tuning RAG methods,                              the overall performance of the recommendations,
+  K-RagRec with LLama-2-7B as the backbone                                  demonstrating the effectiveness of each module.
+  LLM leads to an average of 41.6% improvement                              Secondly, removing the GNN Encoder leads to
+  over the sub-optimal baseline across all datasets.                        a 37% decrease and a 45.9% decrease in the ac-
+  With LLama-3-8B and QWEN2-7B as the back-                                 curacy of the model on MovieLens and Amazon
+  bone LLM, K-RagRec also brought an average of                             Book datasets, respectively, highlighting the signif-
+  13% to 32% improvement, highlighting the effec-                           icance of employing GNN to encode the structure
+  tiveness of our proposed method in augmenting                             of knowledge sub-graphs. Refer to Appendix A.6
+  LLMs' recommendation performance.                                         for more details.
+· Compared to the LoRA fine-tuning with the naive
+  RAG approach, K-RagRec with prompt tuning                                 4.4 Efficiency Evaluation
+  achieves close to or better performance in most
+  settings. Notably, K-RagRec achieves the best                             In this sub-section, we evaluate the inference effi-
+  performance when fine-tuned with LoRA.                                    ciency of our proposed K-RagRec framework com-
+
+                                                                            27158
+0.50  0.80                                                   0.90                                                               knowledge sub-graph numbers N . In addition, we
+                                                                                                                                analyze the impact of various GNN encoder vari-
+0.45  0.75                                                   0.85                                                               ants and different GNN layer numbers for the pro-
+                                                                                                                                posed framework in Appendix A.10 and A.11.
+      0.70                                                   0.80
+ACCURACY0.40                                                                                                                       1) Impact of popularity selective retrieval pol-
+                         RECALL@30.65                        0.75                                                               icy threshold p: To understand how the popular-
+                                                   RECALL@50.35                                                                 ity selective retrieval policy threshold p affects K-
+      0.60                                                   0.70                                                               RagRec, we conduct experiments on MovieLens-
+0.30                                                                                                                            1M and LLama-2-7b across two metrics. Results
+      0.55                                                   0.65                                                               are shown in Figure 4. As the threshold p in-
+                                                                                                                                creases, the recommendation performance initially
+0.25  0.50                                                   0.60                                                               improves and then decreases. When the thresh-
+                                                                                                                                old p is set to a small value, only a few items are
+0.20  0.45                                                   0.55                                                               augmented. This leads to insufficient retrieval and
+                                                                                                                                poor recommendation accuracy. When p is set to a
+--R-P-eIKEo--rnnpRcadualonegaxkdriiiRinnntegyggc                                                                                larger value, more items are retrieved for augmen-
+                                       --R-P-eIKEo--rnnpRcadualonegaxkdriiiRinnntegyggc                                         tation. However, due to the re-ranking sub-graph
+                                                                              --R-P-eIKEo--rnnpRcadualonegaxkdriiiRinnntegyggc  numbers N being fixed, some retrieved cold-start
+                                                                                                                                item knowledge sub-graphs are discarded or ranked
+(a) ML1M ACC (b) ML1M R@3 (c) ML1M R@5                                                                                          at the back of the list, resulting in sub-optimal rec-
+                                                                                                                                ommendation performance. On the other hand,
+0.55  0.75                                                   0.85                                                               as observed in Figure 4 (c), the inference time in-
+                                                                                                                                creases almost linearly with threshold p. Therefore,
+0.50  0.70                                                   0.80                                                               selecting an appropriate threshold p is crucial to
+                                                                                                                                balance the performance and inference time.
+0.45  0.65                                                   0.75
+ACCURACY                                                                                                                           2) Impact of retrieved knowledge sub-graph
+0.40                     RECALL@30.60                        0.70                                                               numbers K and re-ranking sub-graph numbers
+                                                   RECALL@5                                                                     N : In this part, we analyze the impact of two key
+0.35  0.55                                                   0.65                                                               hyper parameters, which are retrieved knowledge
+                                                                                                                                sub-graph numbers K and re-ranking sub-graph
+0.30  0.50                                                   0.60                                                               numbers N . First, to measure the impact of K, we
+                                                                                                                                perform experiments on the MovieLens dataset and
+0.25  0.45                                                   0.55                                                               fix p = 50%, N = 5. As shown in Figure 5, some
+                                                                                                                                relevant knowledge sub-graphs may be overlooked
+0.20  0.40                                                   0.50                                                               when K = 1. On the other hand, larger values of K
+                                                                                                                                can introduce irrelevant information. Therefore, we
+--PR--oeIKE--prnnRucadlaoneagrxkdiiiiRtnnneygggc                                                                                set K equal to 3 in our experiments. Next, we eval-
+                                       --R-P-eIKEo--rnnpRcadualonegaxkdriiiRinnntegyggc                                         uate the effect of N by fixing p = 50% and K = 3,
+                                                                              --R-P-eIKEo--rnnpRcadualonegaxkdriiiRinnntegyggc  and present the results in Figure 6. We observe that
+                                                                                                                                setting N to between 5 and 7 results in improved
+(d) BOOK ACC (e) BOOK R@3 (f) BOOK R@5                                                                                          performance on the Amazon Book dataset. In gen-
+                                                                                                                                eral, it is important to carefully choose K and N
+Figure 3: Comparison among K-RagRec and its four                                                                                based on the scale of the dataset and the KG.
+ablated variants on MovieLens-1M and Amazon Book
+datasets and LLama-2-7b across metrics Accuracy, Re-                                                                            5 Conclusion
+call@3 and Recall@5.
+                                                                                                                                In this paper, we propose a novel framework K-
+Table 2: Comparison of the inference efficiency on the                                                                          RagRec to augment the recommendation capabil-
+MovieLens-1M dataset and LLama-2-7b in seconds (s).                                                                             ity of LLMs by retrieving reliable and up-to-date
+ACC denote Accuracy.                                                                                                            knowledge from KGs. Specifically, we first intro-
+                                                                                                                                duce a GNN and PLM to perform semantic index-
+             Methods     ACC    Time (s)                                                                                        ing of KGs, enabling both coarse and fine-grained
+
+             w/o RAG       -      0.92
+             KG-Text     0.076    2.19
+             KAPING      0.079    6.47
+      GraphToken w/ RAG  0.268    3.14
+            G-retriever  0.274    5.86
+
+            K-RagRec     0.429    1.06
+
+pared with baselines on the MovieLens-1M dataset
+and LLama-2-7b. We record the time cost for one
+inference utilizing two NVIDIA A6000-48G GPUs.
+The time cost for a single inference is reported in
+Table 2. By observing the experimental results, we
+notice that various KG RAG approaches signifi-
+cantly increase the inference time, which is due to
+the large scale of the KG. In contrast, K-RagRec
+achieves the best computational efficiency com-
+pared to various KG RAG methods and is only
+about 0.1s slower than direct inference without re-
+trieval. These findings highlight the efficiency of
+K-RagRec and validate the effectiveness of our
+popularity selective retrieval policy.
+
+4.5 Parameter Analysis
+
+In this section, we evaluate the impact of three main
+hyper parameters of K-RagRec, namely popular-
+ity selective retrieval policy threshold p, retrieved
+knowledge sub-graph numbers K, and re-ranking
+
+                                                                   27159
+retrieval for KGs. To further improve retrieval effi-   References
+ciency, we introduce a popularity selective retrieval
+policy that determines whether an item needs to         Himan Abdollahpouri, Robin Burke, and Bamshad
+be retrieved based on its popularity. Notably, K-          Mobasher. 2017. Controlling popularity bias in
+RagRec performs more expressive graph encoding             learning-to-rank recommendation. In Proceedings
+of the retrieved knowledge sub-graphs, facilitat-          of the eleventh ACM conference on recommender
+ing the LLM to effectively leverage the structure          systems, pages 42­46.
+information and avoid long context input. Exten-
+sive experiments conducted on three real-world          Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+datasets demonstrate the effectiveness of our pro-         Ahmad, Ilge Akkaya, Florencia Leoni Aleman,
+posed framework.                                           Diogo Almeida, Janko Altenschmidt, Sam Altman,
+                                                           Shyamal Anadkat, et al. 2023. Gpt-4 technical report.
+6 Limitations                                              arXiv preprint arXiv:2303.08774.
+
+To the best of our knowledge, this work is a pioneer-   Yihao Ang, Yifan Bao, Qiang Huang, Anthony KH
+ing study in investigating knowledge-graph RAG             Tung, and Zhiyong Huang. 2024. Tsgassist: An inter-
+for LLM-based recommendations. Therefore, we               active assistant harnessing llms and rag for time se-
+realise that this work still has the following three       ries generation recommendations and benchmarking.
+main limitations that can be improved in the future        Proceedings of the VLDB Endowment, 17(12):4309­
+research:                                                  4312.
+
+· Firstly, due to the GPU resource constraints, we      Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+  were only able to evaluate our framework on 7b           Hannaneh Hajishirzi. 2023. Self-rag: Learning to
+  and 8b models. Therefore, in future work, we             retrieve, generate, and critique through self-reflection.
+  plan to extend our method to larger models to            arXiv preprint arXiv:2310.11511.
+  fully assess its effectiveness and scalability.
+                                                        Jinheon Baek, Alham Fikri Aji, and Amir Saffari. 2023.
+· Additionally, we only utilize Freebase as the ex-        Knowledge-augmented language model prompting
+  ternal KG as it is most commonly used for recom-         for zero-shot knowledge graph question answering.
+  mendation tasks. Thus we also aim to adopt other         arXiv preprint arXiv:2306.04136.
+  KGs, such as YAGO, DBpedia, and Wikipedia,
+  to better understand how different knowledge          Keqin Bao, Jizhi Zhang, Yang Zhang, Wenjie Wang,
+  sources impact the performance of the proposed           Fuli Feng, and Xiangnan He. 2023. Tallrec: An ef-
+  method.                                                  fective and efficient tuning framework to align large
+                                                           language model with recommendation. In Proceed-
+· Lastly, designing an intelligent selective retrieval     ings of the 17th ACM Conference on Recommender
+  policy for LLM-based recommender systems is              Systems, pages 1007­1014.
+  an important and challenging task. In this work,
+  we propose to leverage popularity to determine        Sebastian Borgeaud, Arthur Mensch, Jordan Hoff-
+  which items to retrieve to improve retrieval effi-       mann, Trevor Cai, Eliza Rutherford, Katie Milli-
+  ciency. In the future, we will investigate more          can, George Bm Van Den Driessche, Jean-Baptiste
+  flexible mechanisms (e.g., reinforcement learn-          Lespiau, Bogdan Damoc, Aidan Clark, et al. 2022.
+  ing) to dynamically update policies according to         Improving language models by retrieving from tril-
+  changes in user interest.                                lions of tokens. In International conference on ma-
+                                                           chine learning, pages 2206­2240. PMLR.
+7 Acknowledgements
+                                                        Òscar Celma and Perfecto Herrera. 2008. A new ap-
+The research described in this paper has been              proach to evaluating novel recommendations. In
+partly supported by General Research Funds from            Proceedings of the 2008 ACM conference on Rec-
+the Hong Kong Research Grants Council (project             ommender systems, pages 179­186.
+no. PolyU 15207322, 15200023, 15206024,
+and 15224524), internal research funds from The         Dario Di Palma. 2023. Retrieval-augmented recom-
+Hong Kong Polytechnic University (project no.              mender system: Enhancing recommender systems
+P0042693, P0048625, P0051361, P0052406, and                with large language models. In Proceedings of the
+P0052986).                                                 17th ACM Conference on Recommender Systems,
+                                                           pages 1369­1373.
+
+                                                        Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+                                                           Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+                                                           Akhil Mathur, Alan Schelten, Amy Yang, Angela
+                                                           Fan, et al. 2024. The llama 3 herd of models. arXiv
+                                                           preprint arXiv:2407.21783.
+
+                                                        Wenqi Fan, Yujuan Ding, Liangbo Ning, Shijie Wang,
+                                                           Hengyun Li, Dawei Yin, Tat-Seng Chua, and Qing
+                                                           Li. 2024a. A survey on rag meeting llms: Towards
+
+27160
+   retrieval-augmented large language models. In Pro-      Zhengbao Jiang, Frank F Xu, Luyu Gao, Zhiqing
+   ceedings of the 30th ACM SIGKDD Conference on              Sun, Qian Liu, Jane Dwivedi-Yu, Yiming Yang,
+   Knowledge Discovery and Data Mining, pages 6491­           Jamie Callan, and Graham Neubig. 2023. Ac-
+   6501.                                                      tive retrieval augmented generation. arXiv preprint
+Wenqi Fan, Yao Ma, Qing Li, Yuan He, Eric Zhao,               arXiv:2305.06983.
+   Jiliang Tang, and Dawei Yin. 2019. Graph neural
+   networks for social recommendation. In The world        Vladimir Karpukhin, Barlas Oguz, Sewon Min, Patrick
+   wide web conference, pages 417­426.                        Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and
+Wenqi Fan, Shijie Wang, Jiani Huang, Zhikai Chen,             Wen-tau Yih. 2020. Dense passage retrieval for
+   Yu Song, Wenzhuo Tang, Haitao Mao, Hui Liu, Xi-            open-domain question answering. arXiv preprint
+   aorui Liu, Dawei Yin, et al. 2024b. Graph machine          arXiv:2004.04906.
+   learning in the era of large language models (llms).
+   arXiv preprint arXiv:2404.14928.                        Krishnaram Kenthapadi, Benjamin Le, and Ganesh
+Bahare Fatemi, Jonathan Halcrow, and Bryan Perozzi.           Venkataraman. 2017. Personalized job recommen-
+   2023. Talk like a graph: Encoding graphs for large         dation system at linkedin: Practical challenges and
+   language models. arXiv preprint arXiv:2310.04560.          lessons learned. In Proceedings of the eleventh ACM
+Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia,              conference on recommender systems, pages 346­347.
+   Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, and Haofen
+   Wang. 2023. Retrieval-augmented generation for          Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke
+   large language models: A survey. arXiv preprint            Zettlemoyer, and Mike Lewis. 2019. Generalization
+   arXiv:2312.10997.                                          through memorization: Nearest neighbor language
+Shijie Geng, Shuchang Liu, Zuohui Fu, Yingqiang Ge,           models. arXiv preprint arXiv:1911.00172.
+   and Yongfeng Zhang. 2022. Recommendation as
+   language processing (rlp): A unified pretrain, person-  Thomas N Kipf and Max Welling. 2016. Semi-
+   alized prompt & predict paradigm (p5). In Proceed-         supervised classification with graph convolutional
+   ings of the 16th ACM Conference on Recommender             networks. arXiv preprint arXiv:1609.02907.
+   Systems, pages 299­315.
+Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasu-          Tiziano Labruna, Jon Ander Campos, and Gorka
+   pat, and Mingwei Chang. 2020. Retrieval augmented          Azkune. 2024. When to retrieve: Teaching llms to uti-
+   language model pre-training. In International confer-      lize information retrieval effectively. arXiv preprint
+   ence on machine learning, pages 3929­3938. PMLR.           arXiv:2404.19705.
+Will Hamilton, Zhitao Ying, and Jure Leskovec. 2017.
+   Inductive representation learning on large graphs. Ad-  Jiatong Li, Yunqing Liu, Wenqi Fan, Xiao-Yong Wei,
+   vances in neural information processing systems, 30.       Hui Liu, Jiliang Tang, and Qing Li. 2024. Empower-
+                                                              ing molecule discovery for molecule-caption transla-
+                                                              tion with large language models: A chatgpt perspec-
+                                                              tive. IEEE Transactions on Knowledge and Data
+                                                              Engineering.
+
+Xiangnan He, Kuan Deng, Xiang Wang, Yan Li, Yong-          Linhao Luo, Yuan-Fang Li, Gholamreza Haffari, and
+   dong Zhang, and Meng Wang. 2020. Lightgcn: Sim-            Shirui Pan. 2023. Reasoning on graphs: Faithful and
+   plifying and powering graph convolution network for        interpretable large language model reasoning. arXiv
+   recommendation. In Proceedings of the 43rd Inter-          preprint arXiv:2310.01061.
+   national ACM SIGIR conference on research and de-
+   velopment in Information Retrieval, pages 639­648.      Costas Mavromatis and George Karypis. 2024. Gnn-
+                                                              rag: Graph neural retrieval for large language model
+Xiaoxin He, Yijun Tian, Yifei Sun, Nitesh V Chawla,           reasoning. arXiv preprint arXiv:2405.20139.
+   Thomas Laurent, Yann LeCun, Xavier Bresson, and
+   Bryan Hooi. 2024. G-retriever: Retrieval-augmented      Sewon Min, Julian Michael, Hannaneh Hajishirzi, and
+   generation for textual graph understanding and ques-       Luke Zettlemoyer. 2020. Ambigqa: Answering
+   tion answering. arXiv preprint arXiv:2402.07630.           ambiguous open-domain questions. arXiv preprint
+                                                              arXiv:2004.10645.
+Yupeng Hou, Shanlei Mu, Wayne Xin Zhao, Yaliang
+   Li, Bolin Ding, and Ji-Rong Wen. 2022. Towards          Bryan Perozzi, Bahare Fatemi, Dustin Zelle, Anton Tsit-
+   universal sequence representation learning for recom-      sulin, Mehran Kazemi, Rami Al-Rfou, and Jonathan
+   mender systems. In Proceedings of the 28th ACM             Halcrow. 2024. Let your graph do the talking: En-
+   SIGKDD Conference on Knowledge Discovery and               coding structured data for llms. arXiv preprint
+   Data Mining, pages 585­593.                                arXiv:2402.05862.
+
+Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan           Haohao Qu, Wenqi Fan, Zihuai Zhao, and Qing Li.
+   Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,                2024. Tokenrec: Learning to tokenize id for llm-
+   and Weizhu Chen. 2021. Lora: Low-rank adap-                based generative recommendation. arXiv preprint
+   tation of large language models. arXiv preprint            arXiv:2406.10450.
+   arXiv:2106.09685.
+
+27161
+Ori Ram, Yoav Levine, Itay Dalmedigos, Dor Muhlgay,      Yike Wu, Nan Hu, Sheng Bi, Guilin Qi, Jie Ren, An-
+   Amnon Shashua, Kevin Leyton-Brown, and Yoav              huan Xie, and Wei Song. 2023b. Retrieve-rewrite-
+   Shoham. 2023. In-context retrieval-augmented lan-        answer: A kg-to-text enhanced llms framework for
+   guage models. Transactions of the Association for        knowledge graph question answering. arXiv preprint
+   Computational Linguistics, 11:1316­1331.                 arXiv:2309.11206.
+
+N Reimers. 2019. Sentence-bert: Sentence embed-          Shi-Qi Yan, Jia-Chen Gu, Yun Zhu, and Zhen-Hua Ling.
+   dings using siamese bert-networks. arXiv preprint        2024. Corrective retrieval augmented generation.
+   arXiv:1908.10084.                                        arXiv preprint arXiv:2401.15884.
+
+Priyanka Sen, Sandeep Mavadia, and Amir Saffari. 2023.   An Yang, Baosong Yang, Binyuan Hui, Bo Zheng,
+   Knowledge graph-augmented language models for            Bowen Yu, Chang Zhou, Chengpeng Li, Chengyuan
+   complex question answering. In Proceedings of the        Li, Dayiheng Liu, Fei Huang, et al. 2024. Qwen2
+   1st Workshop on Natural Language Reasoning and           technical report. arXiv preprint arXiv:2407.10671.
+   Structured Explanations (NLRSE), pages 1­8.
+                                                         Junjie Zhang, Yupeng Hou, Ruobing Xie, Wenqi Sun,
+Yunsheng Shi, Zhengjie Huang, Shikun Feng, Hui              Julian McAuley, Wayne Xin Zhao, Leyu Lin, and
+   Zhong, Wenjin Wang, and Yu Sun. 2020. Masked             Ji-Rong Wen. 2024. Agentcf: Collaborative learning
+   label prediction: Unified message passing model          with autonomous language agents for recommender
+   for semi-supervised classification. arXiv preprint       systems. In Proceedings of the ACM on Web Confer-
+   arXiv:2009.03509.                                        ence 2024, pages 3679­3689.
+
+Jiashuo Sun, Chengjin Xu, Lumingyuan Tang, Saizhuo       Yang Zhang, Fuli Feng, Jizhi Zhang, Keqin Bao, Qi-
+   Wang, Chen Lin, Yeyun Gong, Heung-Yeung Shum,            fan Wang, and Xiangnan He. 2023. Collm: In-
+   and Jian Guo. 2023. Think-on-graph: Deep and             tegrating collaborative embeddings into large lan-
+   responsible reasoning of large language model with       guage models for recommendation. arXiv preprint
+   knowledge graph. arXiv preprint arXiv:2307.07697.        arXiv:2310.19488.
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier    Jujia Zhao, Wenjie Wang, Xinyu Lin, Leigang Qu, Jizhi
+   Martinet, Marie-Anne Lachaux, Timothée Lacroix,          Zhang, and Tat-Seng Chua. 2023. Popularity-aware
+   Baptiste Rozière, Naman Goyal, Eric Hambro,              distributionally robust optimization for recommenda-
+   Faisal Azhar, et al. 2023. Llama: Open and effi-         tion system. In Proceedings of the 32nd ACM Inter-
+   cient foundation language models. arXiv preprint         national Conference on Information and Knowledge
+   arXiv:2302.13971.                                        Management, pages 4967­4973.
+
+Petar Velickovic, Guillem Cucurull, Arantxa Casanova,    Zihuai Zhao, Wenqi Fan, Jiatong Li, Yunqing Liu, Xi-
+   Adriana Romero, Pietro Lio, Yoshua Bengio, et al.        aowei Mei, Yiqi Wang, Zhen Wen, Fei Wang, Xi-
+   2017. Graph attention networks. stat, 1050(20):10­       angyu Zhao, Jiliang Tang, et al. 2024. Recommender
+   48550.                                                   systems in the era of large language models (llms).
+                                                            IEEE Transactions on Knowledge and Data Engi-
+Keheng Wang, Feiyu Duan, Sirui Wang, Peiguang Li,           neering.
+   Yunsen Xian, Chuantao Yin, Wenge Rong, and Zhang
+   Xiong. 2023. Knowledge-driven cot: Exploring faith-
+   ful reasoning in llms for knowledge-intensive ques-
+   tion answering. arXiv preprint arXiv:2308.13259.
+
+Wei Wei, Xubin Ren, Jiabin Tang, Qinyong Wang, Lixin
+   Su, Suqi Cheng, Junfeng Wang, Dawei Yin, and Chao
+   Huang. 2024. Llmrec: Large language models with
+   graph augmentation for recommendation. In Pro-
+   ceedings of the 17th ACM International Conference
+   on Web Search and Data Mining, pages 806­815.
+
+Junda Wu, Cheng-Chun Chang, Tong Yu, Zhankui He,
+   Jianing Wang, Yupeng Hou, and Julian McAuley.
+   2024. Coral: Collaborative retrieval-augmented large
+   language models improve long-tail recommendation.
+   In Proceedings of the 30th ACM SIGKDD Confer-
+   ence on Knowledge Discovery and Data Mining,
+   pages 3391­3401.
+
+Shengqiong Wu, Hao Fei, Leigang Qu, Wei Ji, and
+   Tat-Seng Chua. 2023a. Next-gpt: Any-to-any multi-
+   modal llm. arXiv preprint arXiv:2309.05519.
+                                                           27162
+A Appendix                                                    Table 4: Statistics of Hyper Parameters.
+
+A.1 Implementation Details                                                  Item         Value
+
+The hyper parameters used for K-RagRec and their                        batch size         5
+corresponding values are shown in Table 4. The                            epochs           3
+first part provides the general training setting for                                       2
+K-RagRec. The second part presents the details                          grad steps       1e-5
+of (GNNIndexing, GNNEncoding). Then we list the                        learning rate
+Lora and acceleration settings. Lastly, we provide                                         4
+the hyper parameters for retrieval, including candi-            Indexing layer numbers   1024
+date item number M , popularity selective retrieval           Indexing hidden dimension
+policy threshold p, retrieve knowledge sub-graphs                                          4
+numbers K, and re-ranking knowledge sub-graphs                  Encoding layer numbers   1024
+numbers N . If not specified, we run all methods              Encoding hidden dimension
+three times with different random seeds and report                                         4
+the averaged results.                                           Encoding head numbers
+                                                                                           8
+Table 3: Basic statistics of three datasets and the KG.                    lora_r         16
+"Items in KG" indicates the number of items that ap-                    lora_alpha        0.1
+peared in both the KG and the dataset.                                 lora_dropout      True
+                                                                                         True
+                                                                            int8
+                                                                            fp16          20
+                                                                                         50%
+                                                                candidate item numbers
+                                                                        threshold p        3
+                                                                           top-K           5
+                                                                           top-N
+
+  Datasets   MovieLens-1M  MovieLens-20M  Amazon Book        et al., 2024; Wei et al., 2024; Zhang et al., 2023).
+                                                             For example, P5 (Geng et al., 2022) proposes an
+    User           6,038        138,287     6,106,019        LLM-based recommendation model by unifying
+    Item           3,533         20,720     1,891,460        pre-training, prompting, and prediction for various
+Interaction      575,281       9,995,410   13,886,788        recommendation tasks, such as sequential recom-
+Items in KG        3,498         20,139                      mendation and rating predictions. Furthermore,
+                                              91,700         Tallrec (Bao et al., 2023) fine-tunes LLM (i.e.,
+   Entitys       250,631       1,278,544                     LLaMA-7B) to align with recommendation data
+ Relations          264           436        186,954         for sequential recommendations. To further capture
+ KG triples                                      16          higher-order collaborative knowledge and enhance
+                 348,979       1,827,361                     the model's ability to generalize users and items,
+                                             259,861         TokenRec (Qu et al., 2024) proposes a masked
+                                                             vector-quantized tokenizer to tokenize users and
+A.2 Graph Neural Networks                                    items in LLM-based recommendations. Despite
+                                                             their effectiveness, these models often face chal-
+GNNs are a critical technique in graph machine               lenges, such as hallucinations and the lack of up-
+learning and are widely employed in various graph            to-date knowledge. While fine-tuning can partially
+tasks. By iteratively updating node representations          mitigate these issues, it is resource-costly and time-
+through aggregating information from neighboring             consuming due to the massive parameters of LLMs.
+nodes, GNNs effectively capture the underlying               To overcome these challenges, we propose a knowl-
+topology and relational structure of graphs. For-            edge retrieval augmented recommendation frame-
+mally, a typical GNN operation can be formulated             work that leverages external KGs to provide reli-
+as follows:                                                  able and up-to-date knowledge instead of costly
+                                                             fine-tuning.
+ x(jl+1) = xj(l)  AGG(l+1) x(il) | i  Nxj ,
+                                                       (10)  A.4 Comparison with Existing Methods
+
+where xj(l+1) express node j's feature on the l-th           Existing LLM-based recommender systems usually
+layer, and N (xj) is the set of neighbours of node           require frequent fine-tuning on specific datasets to
+j. AGG is a aggregation function to aggregates               address the lack of knowledge and hallucinations,
+neighbors' features, and  combines neighbors'                which is time-consuming and costly. To solve these
+information with the node itself.                            challenges and avoid costly fine-tuning, our work
+
+A.3 More Related Work
+
+The remarkable breakthroughs in LLMs have led
+to their widespread adoption across various fields,
+particularly in the recommendations. Given power-
+ful reasoning and generalization capabilities, many
+studies have actively attempted to harness the
+power of the LLM to enhance recommender sys-
+tems (Geng et al., 2022; Bao et al., 2023; Qu
+
+                                                       27163
+is the first to augment the recommendation per-         Table 5: Performance comparison of different KG RAG-
+formance of LLMs by retrieving structured data          enhanced LLM recommendations with candidate item
+(i.e., knowledge graph). Specifically, our approach     numbers M = 10 on the MovieLens and Amazon Book
+differs from existing work in the following ways:       dataset and LLama-2-7b across two metrics. The best
+                                                        performances are labeled in bold. ACC and R@3 denote
+· K-RagRec introduces an indexing GNN to ef-            Accuracy and Recall@3, respectively.
+  ficiently retrieve structured data to enhance
+  the recommendation capability of LLMs. Al-                   Methods     MovieLens-1M  Amazon Book
+  though some GraphRAG approaches also intro-
+  duce GNNs to capture higher-order neighbour-                 KG-Text     ACC R@3       ACC R@3
+  hood information, they only apply the last layer             KAPING
+  of the GNN representation, leading to coarse re-         PT w/ KG-Text   0.185    -    0.142    -
+  trieval (He et al., 2024; Mavromatis and Karypis,     GraphToken w/ RAG  0.165    -    0.119    -
+  2024). In contrast, our approach leverages the              G-retriever  0.159  0.493  0.123  0.384
+  representation of each GNN layer to retrieve nu-                         0.512  0.753  0.444  0.682
+  anced knowledge of both coarse and fine-grained             K-RagRec     0.469  0.721  0.367  0.610
+  graph structures from KG, achieving a more com-
+  prehensive and precise retrieval.                                        0.568 0.779   0.606 0.770
+
+· In the recommendation domain that pursues in-         candidate item number M = 10. In this setting,
+  ference speed, excessive retrieval time can se-       we randomly select nine negative samples with the
+  riously degrade the user experience resulting in      target item. The results are presented in Table 5.
+  user churn. Although many studies have explored       We exclude the results of some backbone LLM
+  selective retrieval for RAGs (Yan et al., 2024;       models (e.g., LLama-3 and QWEN2), as similar
+  Jiang et al., 2023), it is still an open question to  observations as Table 1 can be found. Observing
+  determine whether an item needs to be retrieved       the experimental results, we can note that our pro-
+  and to reduce the retrieval time in the recommen-     posed K-RagRec method consistently outperforms
+  dation domain. We propose to use popularity           all baseline methods on MovieLens and Amazon
+  to decide whether an item needs to be retrieved       Book datasets, further highlighting the effective-
+  based on power law distribution, which greatly        ness of our framework.
+  reduces the retrieval time. Table 2 shows that K-
+  RagRec achieves inference times close to direct       A.6 Ablation Study Setting
+  inference while maintaining high recommenda-
+  tion accuracy.                                        To assess the impact of each module in K-
+                                                        RagRec, we compare the framework with four ab-
+· Typical RAG methods usually incorporate the re-       lated variants: K-RagRec (-Indexing), K-RagRec
+  trieved content into the prompt as text (Wu et al.,   (-Popularity), K-RagRec (-Re-ranking), and K-
+  2023b; Baek et al., 2023). However, vanilla RAG       RagRec (-Encoding). (1) K-RagRec (-Indexing)
+  methods rely on documents and paragraphs often        eliminates the GNNIndexing and stores semantic
+  introduce unnecessary noise and even harmful          information of PLM in the knowledge vector
+  disturbance, which can negatively impact the ac-      database. For the retrieved nodes, we extract their
+  curacy and reliability of recommendations. In         second-order sub-graphs as the retrieved knowl-
+  addition, the structural relationships between en-    edge sub-graphs. (2) K-RagRec (-Popularity) does
+  tities are overlooked in typical RAG, resulting in    not apply the popularity selective retrieval policy
+  the sub-optimal reasoning capability of LLM-          and retrieves all items from the user's historical
+  based recommender systems. We propose to              interactions. (3) (-Re-ranking) removes the re-
+  incorporate the retrieved knowledge subgraphs         ranking module and inputs the knowledge sub-
+  (Knowledge-GraphRAG) into the query as a              graphs directly. (4) K-RagRec (-Encoding) re-
+  graph prompt, which facilitates LLMs to better        moves the GNNEncoding and replaces it with a train-
+  understand the retrieved knowledge subgraphs          able soft prompt. The retrieved knowledge sub-
+  and avoids long contexts.                             graphs will be added to the prompt as triples (e.g.,
+                                                        {Moonraker, film writer film, Christopher Wood
+A.5 Comparison with 10 Candidate Items                  (writer)}).
+
+In this section, we conduct additional experiments      A.7 Generalization Study
+to evaluate the effectiveness of K-RagRec with a
+                                                        To evaluate the generalization capability of our
+                                                        proposed framework in the zero-shot setting, we
+                                                        trained a version of the model on the MovieLens-
+
+27164
+Table 6: The generalization results for our K-RagRec           Table 8: Performance comparison of different KG RAG-
+model in a zero-shot setting. In this setting, our models      enhanced LLM recommendation methods on the cold-
+are trained on MovieLens-1M dataset and evaluated on           start dataset and QWEN2 across three metrics. The
+MovieLens-20M and Amazon Book datasets. ACC and                best performances are labeled in bold. ACC and R@k
+R@k denote Accuracy and Recall@k, respectively.                denote Accuracy and Recall@k, respectively.
+
+Models       Methods        MovieLens-20M       Amazon Book                  Methods     ACC                R@3    R@5
+LLama2
+LLama3      K-RagRec     ACC R@3 R@5        ACC R@3 R@5                  PT w/ KG-Text   0.106              0.239  0.395
+QWEN    Lora w/K-RagRec                                               GraphToken w/ RAG  0.258              0.473  0.620
+                         0.539 0.740 0.795  0.390 0.581 0.671                            0.185              0.384  0.488
+            K-RagRec     0.539 0.783 0.863  0.405 0.580 0.796               G-retriever
+        Lora w/K-RagRec                                                                  0.406              0.705  0.834
+                         0.597 0.797 0.839  0.428 0.628 0.706               K-RagRec
+            K-RagRec     0.611 0.775 0.814  0.424 0.622 0.732
+        Lora w/K-RagRec
+                         0.507 0.769 0.861  0.418 0.612 0.687
+                         0.545 0.814 0.897  0.441 0.623 0.706
+
+Table 7: Quantitative comparison of hallucination on           Table 9: Comparison of different GNN Encoders on the
+the MovieLens-1M dataset.  denotes the reduction in            MovieLens-1M dataset and LLama-2-7b across three
+hallucinations for K-RagRec compared to Direct Infer-          metrics. We use bold fonts to label the best performance.
+ence.                                                          ACC and R@k denote Accuracy and Recall@k, respec-
+                                                               tively.
+ Models  Direct Inference  K-RagRec
+LLama-2       39.1%           2.7%                                                  GNN Types               ACC    R@3    R@5
+QWEN2          4.7%           0.9%          93.1%
+                                            80.9%                        GCN (Kipf and Welling, 2016)       0.397  0.704  0.809
+                                                                          GAT (Velickovic et al., 2017)     0.420  0.693  0.804
+1M dataset and assessed it on the MovieLens-20M                       Graph Transformer (Shi et al., 2020)  0.429  0.711  0.779
+and Amazon Book datasets. The experiment re-                          GraphSAGE (Hamilton et al., 2017)     0.418  0.699  0.823
+sults are shown in Table 6. We note that although
+the K-RagRec performance in the zero-shot set-                 80.9%, demonstrating the effectiveness of our ap-
+ting is slightly degraded when compared to the                 proach in addressing hallucinations.
+well-trained model in Table 1, it still demonstrates
+21.6% improvement over SOTA baselines on the                   A.9 Study of Cold Start Recommendation
+MovieLens-20M dataset. Furthermore, despite the
+differences between the book recommendation and                The cold start problem is an important issue in most
+movie recommendation tasks, the model trained on               recommendation research. To comprehensively
+MovieLens-1M delivers about 8.7% improvement                   evaluate our approach, we particularly design a
+in the zero-shot setting compared to prompt-tuned              case study to evaluate the model's recommendation
+baselines on the Amazon Book dataset. The experi-              performance under the cold-start setting. Specif-
+mental results demonstrate that K-RagRec exhibits              ically, we construct a separate cold-start dataset
+strong generalization capabilities and is adaptable            based on the MovieLens dataset that only contains
+across different domains.                                      these identified cold-start items as target items. We
+                                                               compare K-RagRec with three KG RAG-enhanced
+A.8 Study of Hallucination                                     LLM recommendation methods, and the experi-
+                                                               ment results are shown in Table 8. The results
+In this section, we present a qualitative analysis             demonstrate that our proposed K-RagRec still has
+of hallucinations in the LLama-2-7b and QWEN2                  satisfactory performance under the cold-start rec-
+models on the MovieLens dataset. Specifically,                 ommendation scenario, highlighting the effective-
+we include a few fictional movies in the candi-                ness of our framework in all the cases.
+date items to observe the probability of the fic-
+tional movie being recommended. We compare                     A.10 Study of Four GNN Encoders
+direct recommendations and recommendations aug-
+mented with K-RagRec, and the results are shown                To further understand the generality of our pro-
+in Table 7. We note that K-RagRec significantly                posed approach, we conduct a comparative study
+reduced hallucinations by 93.1% compared to di-                of four variants applying different GNN encoders.
+rect inference on LLama-2. In contrast to LLama-               Specifically, we compare GCN (Kipf and Welling,
+2, QWEN2 rarely recommends fictional movies.                   2016), GAT (Velickovic et al., 2017), Graph Trans-
+Nevertheless, K-RagRec reduced hallucinations by               former (Shi et al., 2020), and GraphSAGE (Hamil-
+                                                               ton et al., 2017) as four K-RagRec variants of GNN
+                                                               encoder. Specifically, Graph Convolutional Net-
+
+                                                               27165
+Table 10: Comparison of different GNN layers on the    dependencies in the graph, leading to sub-optimal
+Amazon Book dataset and LLama-2-7b across three        performance. On the other hand, too many layers
+metrics. ACC and R@k denote Accuracy and Recall@k,     can result in indistinguishable node representations.
+respectively.                                          Thus, selecting the optimal number of GNN layers
+                                                       is crucial for effective model training.
+GNN Layers   ACC    R@3    R@5
+                                                       A.12 Used Prompt
+   3 layers  0.496  0.653  0.736
+   4 layers  0.506  0.690  0.780                       In this part, we present the prompts designed for
+   5 layers  0.498  0.656  0.729                       movie recommendations and book recommenda-
+                                                       tions. We show two examples in Table 11, and set
+work (GCN) (Kipf and Welling, 2016) first intro-       the candidate items M equal to 20. For inference,
+duces convolutional operations to graph-structured     we leverage the model to make the prediction based
+data. By aggregating features from neighboring         on the user's recent watching history and candidate
+nodes, GCN facilitates the learning of rich node rep-  items.
+resentations. GraphSAGE (Hamilton et al., 2017)
+learns an aggregation function that samples and
+combines features from a node's local neighbor-
+hood in an inductive setting, enabling the effec-
+tive use of new nodes. Graph Attention Network
+(GAT) (Velickovic et al., 2017) further incorporates
+attention mechanisms, allowing the model to dy-
+namically assign varying attention to neighboring
+nodes, thereby enhancing the focus on the most
+relevant information. Inspired by the success of
+the transformer, the Graph Transformer (Shi et al.,
+2020) adapts transformer architectures to graph
+data, enhancing the modeling of graphs, particu-
+larly textual graphs.
+
+   We report the experiment results on the
+MovieLens-1M dataset and the LLama-2-7b back-
+bone in Table 9. It is noted that the GCN Encoder
+variant method performs second-best on the Re-
+call@5 metric, although it is slightly worse than
+other GNN encoders on the Accuracy metric. Over-
+all, four GNN encoder variants exhibit close perfor-
+mance on the MovieLens dataset, highlighting the
+generality and robustness of our framework across
+different GNN encoders.
+
+A.11 Study of GNN Layer Numbers
+
+In this subsection, we evaluate the impact of the
+number of GNN layers on model performance. We
+vary the numbers of the GNN layer numbers in the
+range of {3, 4, 5} and test on the Amazon Book
+dataset and LLama-2-7b across three metrics. As
+observed in Table 10, the model performance first
+improves and then decreases as the number of GNN
+layers increases, and the model achieves the best
+results across the three metrics when setting the
+number of GNN layers is set to four. Therefore, a
+smaller number of GNN layers may not have suffi-
+cient depth to capture the intricate relationships and
+
+                                                           27166
+0.45                                   0.80                                                 1.6
+0.44                                   0.78                                                 1.4
+0.43                                   0.76                                                 1.2
+0.42                                   0.74                                                 1.0
+0.41                                   0.72                                                 0.8
+                                                                                            0.6
+0.400.0 0.2 th0r.e4sho0l.d6 p 0.8 1.0  0.700.0 0.2 th0r.e4sho0l.d6 p 0.8 1.0
+ACCURACY                                                                                    0.40.0 0.2 th0r.e4sho0l.d6 p 0.8 1.0
+                                     RECALL@5
+                                                                        Inference Time (s)
+
+        (a) Accuracy                          (b) Recall@5                                          (c) Inference Time
+
+Figure 4: Effect of popularity selective retrieval policy threshold p on MovieLens-1M and LLama-2-7b across
+metrics Accuracy, Recall@5 and inference time (seconds) for K-RagRec.
+
+0.52                                   0.70                                                 0.80
+                                       0.68
+0.50                                   0.66                                                 0.75
+                                       0.64
+                                       0.62
+                                       0.60
+                                       0.58
+                                       0.56
+
+                                          0 2 4K 6 8
+ACCURACY0.48
+                                    RECALL@3
+                                                                        RECALL@50.46        0.70
+
+0.44                                                                                        0.65
+
+0.42
+
+0.40 0  2  4K 6       8                                                                     0.60 0  2  4K 6             8
+
+(a) Amazon Book: Accuracy              (b) Amazon Book: Recall@3                            (c) Amazon Book: Recall@5
+
+Figure 5: Effect of retrieved knowledge sub-graph numbers K on Amazon Book datasets and LLama-2-7b across
+metrics Accuracy, Recall@3 and Recall@5 for K-RagRec.
+
+0.52                                   0.70                                                 0.80
+
+ACCURACY0.50                           0.68                                                 0.78
+                                     RECALL@30.480.66                                       0.76
+                                                                          RECALL@50.460.64  0.74
+0.44                                   0.62                                                 0.72
+0.42 2  4  6N8        10 12                   4  6N8        10 12                           0.70    4  6N8              10 12
+                                           2
+                                                                                                2
+
+(a) Amazon Book: Accuracy              (b) Amazon Book: Recall@3                            (c) Amazon Book: Recall@5
+
+Figure 6: Effect of re-ranking knowledge sub-graph numbers N on Amazon Book datasets and LLama-2-7b across
+metrics Accuracy, Recall@3 and Recall@5 for K-RagRec.
+
+                                                 27167
+Table 11: Example of the used prompt for K-RagRec. The user's recent watching/reading history and candidate
+items are marked in red and blue, respectively.
+
+Datasets                                                Used Prompt
+Movies
+          Below is an instruction that describes a task, paired with an input that provides further
+Books     context. Write a response that appropriately completes the request. Instruction: Given the
+          user's watching history, select a film that is most likely to interest the user from the options.
+          Watching history: {"History of the World: Part I", "Romancing the Stone", "Fast Times at
+          Ridgemont High", "Good Morning, Vietnam", "Working Girl", "Cocoon", "Splash", "Pretty
+          in Pink", "Terms of Endearment", "Bull Durham"}. Options: {A: "Whole Nine Yards",
+          B: "Hearts and Minds", C: "League of Their Own", D: "Raising Arizona", E: "Happy
+          Gilmore", F: "Brokedown Palace", G: "Man Who Knew Too Much", H: "Light of Day",
+          I: "Tin Drum", J: "Blair Witch Project", K: "Red Sorghum", L: "Flintstones in Viva Rock
+          Vegas", M: "Anna, N: Roger & Me" O: "Land and Freedom", P: "In Love and War", Q: "Go
+          West", R: "Kazaam", S: "Thieves", T: "Friends & Lovers"}. Select a movie from options A
+          to T that the user is most likely to be interested in.
+
+          Below is an instruction that describes a task, paired with an input that provides further
+          context. Write a response that appropriately completes the request. Instruction: Given the
+          user's reading history, select a book that is most likely to interest the user from the options.
+          Watching history: {"Practice Makes Perfect: Spanish Verb Tenses", "NTC's Dictionary
+          of Common Mistakes in Spanish", "Streetwise Spanish Dictionary/Thesaurus", "Buscalo!
+          (Look It Up!) : A Quick Reference Guide to Spanish Grammar and Usage", "La lengua que
+          heredamos: Curso de espaol para bilinges", "Vox Diccionario De Sinonimos Y Antonimos",
+          "Schaum's Outline of Spanish Vocabulary", "Nos Comunicamos (Spanish Edition)", "The
+          Oxford Spanish Business Dictionary", "Bilingual Dictionary of Latin American Spanish"}.
+          Options: {"A: Folk and Fairy Tales, Childcraft (Volume 3)", B: "The Waves", C: "Dead End
+          Kids: Gang Girls and the Boys They Know", D: "Opera Stars in the Sun: Intimate Glimpes
+          of Metropolitan Opera Personalities", E: "Five-Minute Erotica", F: "Spanish Verbs: Oxford
+          Minireference", G: "Motorcycle Maintenance Techbook: Servicing & Minor Repairs for
+          All Motorcycles & Scooters", H: "Father and Son: A Study of Two Temperaments (Classic,
+          20th-Century, Penguin)", I: "Manga Mania Fantasy Worlds: How to Draw the Amazing
+          Worlds of Japanese Comics", J: "MCSE Designing a Windows Server 2003 Active Directory
+          & Network Infrastructure: Exam 70-297 Study Guide and DVD Training System", K: "The
+          Atmospheric Boundary Layer (Cambridge Atmospheric and Space Science Series)", L: "St.
+          Augustine and St. Johns County: A pictorial history", M: "A Will to Survive: Indigenous
+          Essays on the Politics of Culture, Language, and Identity", N: "Saved: A Guide to Success
+          With Your Shelter Dog", O: "Mosaic (Star Trek Voyager)", P: "Fantastical Tarot: 78-Card
+          Deck", Q: "American Sign Language-A Look at Its History, Structure and Community",
+          R: "Warrior's Heart (Zebra Historical Romance)", S: "The New Money Management: A
+          Framework for Asset Allocation", T: "Megabrain"}. Select a book from options A to T that
+          the user is most likely to be interested in.
+
+          27168
+
