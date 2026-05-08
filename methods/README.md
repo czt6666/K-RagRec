@@ -1,46 +1,47 @@
-# `methods/` — Method Index
+# `methods/` —— 方法索引
 
-This directory holds one self-contained subdirectory per method. The original K-RagRec implementation lives in `baseline/` and is treated as **read-only** — it serves as the reproducible reference for the ACL 2025 paper. Every other directory is a *copy* of `baseline/` with targeted modifications, so we can compare against the unmodified original at any time.
+本目录每个子目录对应一个方法，且彼此自包含。原始 K-RagRec 实现放在 `baseline/`，按**只读参考**对待——它是 ACL 2025 论文的可复现基线。其它每个目录都是 `baseline/` 的副本，只在需要的地方做了定向修改，这样我们随时可以与未改动的原版做对照。
 
-## Naming Convention
+## 命名约定
 
-| Directory | Purpose | Status |
+| 目录 | 用途 | 状态 |
 |---|---|---|
-| `baseline/` | Original K-RagRec code (the ACL 2025 paper). **Do not modify.** | ✅ committed |
-| `h1_qformer/` | H1 — Multi-token Graph-Q-Former projector (replace mean pooling) | ⏳ planned |
-| `h2_gate/` | H2 — Learnable adaptive retrieval gate (replace popularity heuristic) | ⏳ planned |
-| `h3_pcst/` | H3 — Multi-source PCST + path-aware retrieval | ⏳ planned |
-| `h5_rel_gnn/` | H5 — Relation-aware GNN encoder (CompGCN / HGT) | ⏳ planned |
-| `k2_ragrec/` | Combined H1 + H2 + H3 + H5 — final method for the paper | ⏳ planned |
+| `baseline/` | 原始 K-RagRec 代码（ACL 2025 论文）。**禁止修改**。 | ✅ 已提交 |
+| `h1_qformer/` | H1 —— 多 token Graph-Q-Former 投影器（替换 mean 池化） | ✅ 已实现 |
+| `h2_gate/` | H2 —— 可学习自适应检索门控（替换流行度启发式） | ✅ 已实现 |
+| `h3_pcst/` | H3 —— 多源 PCST + 路径感知检索 | ✅ 已实现 |
+| `h4_temporal/` | H4 —— 时序 / 序列 Transformer 分支 | ✅ 已实现 |
+| `h5_rel_gnn/` | H5 —— 关系类型感知 GNN 编码器（CompGCN / RGCN） | ✅ 已实现 |
+| `k2_ragrec/` | 组合 H1 + H2 + H3 + H5 —— 论文最终方法 | ⏳ 计划中 |
 
-H/M/L priority and motivation: see `paper/INNOVATIONS.md`.
+各方案的优先级和动机详见 `paper/INNOVATIONS.md`。
 
-## Directory Workflow
+## 新建方法的工作流
 
-When starting a new method (e.g. `h1_qformer`):
+启动一个新方法（例如 `h1_qformer`）的步骤：
 
 ```powershell
-# 1. Copy baseline into a new method directory
+# 1. 把 baseline 复制到一个新方法目录
 Copy-Item -Recurse methods/baseline methods/h1_qformer
 
-# 2. Add a method-level README documenting:
-#    - which baseline commit it forks from
-#    - the specific files/lines being changed
-#    - how to run training & evaluation
+# 2. 在该方法目录下加一个 README，记录：
+#    - 是从 baseline 哪个 commit 分叉的
+#    - 改了哪些文件 / 哪些行
+#    - 训练 + 评测怎么跑
 New-Item methods/h1_qformer/README.md
 ```
 
-## How to Run (PowerShell)
+## 怎么运行（PowerShell）
 
-The cwd is always the repo root (`K-ragrec/`). Datasets resolve relative to cwd; `PYTHONPATH` controls where Python finds the `src/` package.
+工作目录始终是仓库根目录（`K-ragrec/`）。数据集路径相对 cwd 解析；`PYTHONPATH` 控制 Python 在哪里找 `src/` 包。
 
 ```powershell
-$env:PYTHONPATH = "methods/<method_name>"
-python methods/<method_name>/train.py --args ...
-python methods/<method_name>/evaluate.py --args ...
+$env:PYTHONPATH = "methods/<方法名>"
+python methods/<方法名>/train.py --args ...
+python methods/<方法名>/evaluate.py --args ...
 ```
 
-For example, to run the baseline:
+例如，跑 baseline：
 
 ```powershell
 $env:PYTHONPATH = "methods/baseline"
@@ -50,19 +51,20 @@ python methods/baseline/train.py `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5
 ```
 
-> Do NOT `cd` into a method directory before running. The hardcoded paths inside the scripts (`dataset/ML1M/...`, `dataset/fb`, `output/...`) all resolve relative to the cwd.
+> **不要**先 `cd` 进方法目录再运行。脚本里硬编码的 `dataset/ML1M/...`、`dataset/fb`、`output/...` 都是相对 cwd 解析的。
 
-## Why Not a Single Tree With Branches?
+## 为什么用「方法即目录」而不是 git 分支
 
-Method-as-directory is preferred over git branches for two reasons:
+方法即目录的优势有二：
 
-1. **Side-by-side diffs.** We can `Compare-Object` (or `git diff --no-index`) any pair of methods to see exactly what changed without juggling branches.
-2. **Mixing methods is trivial.** When we combine H1 + H2 + H3 into `k2_ragrec/`, we just copy + cherry-pick file fragments rather than resolving cross-branch merges.
+1. **能并排 diff**。任意两个方法之间可以 `Compare-Object`（或 `git diff --no-index`）一眼看到差异，不用切来切去。
+2. **组合方法很轻松**。把 H1 + H2 + H3 合到 `k2_ragrec/` 时，直接复制 + 拼片段就行，不用解决跨分支 merge 冲突。
 
-## Reading Order
+## 阅读顺序
 
-Before touching code:
+动手改代码之前先读：
 
-1. `paper/CODE_ANALYSIS.md` — line-level audit of the baseline (paper-vs-code gaps, code smells)
-2. `paper/RELATED_WORKS.md` — 46-paper survey across 8 categories
-3. `paper/INNOVATIONS.md` — prioritized backlog with sprint plan
+1. `paper/CODE_ANALYSIS.md` —— baseline 逐行审计（论文与代码差异、代码异味）
+2. `paper/RELATED_WORKS.md` —— 46 篇相关论文调研，按 8 大类分组
+3. `paper/INNOVATIONS.md` —— 排好优先级的创新清单 + sprint 计划
+4. `paper/DATA_FORMAT.md` —— 数据集 + KG 格式逐文件审计（实现新方法前的契约文档）

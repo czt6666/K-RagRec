@@ -1,84 +1,70 @@
-# H2 — Learnable retrieval gate
+# H2 —— 可学习检索门控
 
-> Forked from `methods/baseline/`. Augments the popularity-threshold rule
-> with a small MLP gate that scores each retrieved subgraph against the
-> user-history query embedding, producing a soft (sigmoid) or hard
-> (Gumbel-Sigmoid straight-through) weight that re-weights subgraph
-> contributions before pooling. The popularity selector still controls
-> *which* items get sent to retrieval (so retrieval-time speed is
-> preserved); the gate then decides *how much each retrieved subgraph
-> contributes* in the LLM forward.
+> 从 `methods/baseline/` 分叉。在 baseline 的「按流行度阈值筛 item」策略之外，再叠一层 MLP 门控：它对每个被检索到的子图，结合用户历史 query 嵌入，输出一个软（sigmoid）或硬（Gumbel-Sigmoid 直通梯度）的权重，在池化前就对子图贡献做重加权。流行度筛选仍然控制**哪些 item 进检索**（保留检索时的速度优势），门控控制**每个检索结果在 LLM 前向中权重多大**。
 
-## Files changed vs baseline
+## 相对 baseline 的文件改动
 
-| file | what changed |
+| 文件 | 改了什么 |
 |---|---|
-| `src/model/gate.py` | **new** — `RetrievalGate(emb_dim, hidden)`. Concatenates `[g, q, |g-q|, g*q]` (1024×4 → 256 → 1) and outputs sigmoid weights. Includes a `gumbel_sigmoid(logits, tau, hard)` static method for straight-through binary selection. |
-| `src/model/graph_llm.py` | Adds `self.gate`. In `encode_graphs`, after GNN scatter-mean, multiplies each subgraph embedding by the gate weight. Optionally enables Gumbel-Sigmoid in training. Adds an L1-style `_last_gate_sparsity_loss` that the `forward()` returns alongside CE so the model is incentivized to keep the gate sparse. |
-| `train.py` / `evaluate.py` | Compute SBERT embedding of the watching-history string per sample (`retrieval_model.encode_query(input)`) and put it in `sample['query_emb']`. |
-| `src/config.py` | + `--gate_use_gumbel`, `--gate_tau`, `--gate_sparsity_lambda`. |
+| `src/model/gate.py` | **新增** —— `RetrievalGate(emb_dim, hidden)`。把 `[g, q, |g-q|, g*q]`（1024×4 → 256 → 1）拼起来过 MLP，输出 sigmoid 权重。还提供静态方法 `gumbel_sigmoid(logits, tau, hard)` 用于直通的二值选择。 |
+| `src/model/graph_llm.py` | 新增 `self.gate`。`encode_graphs` 在 GNN scatter-mean 之后，把每个子图嵌入乘以门控权重。训练时可启用 Gumbel-Sigmoid。新增 L1 风格的 `_last_gate_sparsity_loss`，由 `forward()` 与 CE 一起返回，鼓励门控变得稀疏。 |
+| `train.py` / `evaluate.py` | 每条样本都对 watching-history 字符串做一次 `retrieval_model.encode_query(input)`（SBERT 嵌入），存进 `sample['query_emb']`。 |
+| `src/config.py` | 新增 `--gate_use_gumbel`、`--gate_tau`、`--gate_sparsity_lambda`。 |
 
-## Run (PowerShell)
+## 运行（PowerShell）
 
 ```powershell
 $env:PYTHONPATH = "methods/h2_gate"
 
-# Default: soft sigmoid weighting, no sparsity penalty
+# 默认：软 sigmoid 加权，无稀疏惩罚
 python methods/h2_gate/train.py `
     --model_name graph_llm `
     --llm_model_name 7b `
-    --llm_model_path "<llama-2-7b path>" `
+    --llm_model_path "<llama-2-7b 路径>" `
     --llm_frozen True `
     --dataset ml1m `
     --batch_size 5 `
     --gnn_model_name gt --gnn_num_layers 4 `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5
 
-# Hard binary selection via Gumbel-Sigmoid + sparsity penalty
+# 硬二值选择 + 稀疏惩罚
 python methods/h2_gate/train.py `
     --model_name graph_llm --llm_model_name 7b `
-    --llm_model_path "<llama-2-7b path>" `
+    --llm_model_path "<llama-2-7b 路径>" `
     --llm_frozen True --dataset ml1m `
     --batch_size 5 `
     --gnn_model_name gt --gnn_num_layers 4 `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 `
     --gate_use_gumbel --gate_tau 1.0 --gate_sparsity_lambda 0.01
 
-# Evaluate (any of the above)
+# 评测
 python methods/h2_gate/evaluate.py `
     --model_name graph_llm --llm_model_name 7b --llm_frozen True --dataset ml1m `
     --batch_size 5 --gnn_model_name gt --gnn_num_layers 4 `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5
 ```
 
-## Smoke test
+## 冒烟测试
 
 ```powershell
 $env:PYTHONPATH = "methods/h2_gate"
 python tools/smoke_h2_gate.py
 ```
 
-Expected: `RetrievalGate params: 1,049,089`, then per-N weight tables, three
-binary Gumbel masks, and `Gradient flow OK: 4 of 4 parameters ...`,
-ending with `[OK] H2 gate smoke test passed.`
+期望：`RetrievalGate params: 1,049,089`，每个 N 都打出权重表，3 个 Gumbel 二值掩码，`Gradient flow OK: 4 of 4 parameters ...`，最后 `[OK] H2 gate smoke test passed.`
 
-## Ablation grid
+## 消融网格
 
-| config | what it tests |
+| 配置 | 检验什么 |
 |---|---|
-| baseline (no gate) | reference number |
-| `--gate_sparsity_lambda 0` (soft sigmoid) | continuous re-weighting only |
-| `--gate_use_gumbel --gate_sparsity_lambda 0.0` | binary selection, no sparsity push |
-| `--gate_use_gumbel --gate_sparsity_lambda 0.01` | binary + sparsity (paper headline) |
-| `--gate_use_gumbel --gate_sparsity_lambda 0.05` | aggressive sparsity |
+| baseline（无门控） | 参考数字 |
+| `--gate_sparsity_lambda 0`（软 sigmoid） | 仅连续重加权 |
+| `--gate_use_gumbel --gate_sparsity_lambda 0.0` | 二值选择，不施稀疏压力 |
+| `--gate_use_gumbel --gate_sparsity_lambda 0.01` | 二值 + 稀疏（论文主结果） |
+| `--gate_use_gumbel --gate_sparsity_lambda 0.05` | 强稀疏 |
 
-## Things to watch when training
+## 训练时需要注意的
 
-- The gate is **jointly trained with the rest of the model**. Loss = CE +
-  `gate_sparsity_lambda * mean(weights)`. Without sparsity, the gate
-  defaults to ≈0.5 weights everywhere and offers little benefit.
-- `--gate_tau` between 0.5 and 1.5 typically works; lower = sharper
-  binary, harder optimization.
-- The popularity-based pre-filter in `whether_retrieval` is unchanged, so
-  this method preserves retrieval-time efficiency. The gate only
-  re-weights what was already retrieved.
+- 门控**与模型其它部分联合训练**。Loss = CE + `gate_sparsity_lambda * mean(weights)`。不加稀疏的话门控大概率收敛到 ≈0.5，没什么用。
+- `--gate_tau` 取 0.5–1.5 一般可用；越低越接近硬二值，但优化更难。
+- `whether_retrieval` 里那套基于流行度的预筛选没动，所以这版仍保留 baseline 的检索速度优势。门控只对**已检索到**的子图做重加权。

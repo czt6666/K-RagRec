@@ -1,32 +1,32 @@
-# K-RagRec (Reorganized for Innovation Experiments)
+# K-RagRec（为创新实验重组的版本）
 
-This repository started from the official PyTorch implementation of the ACL 2025 paper *"Knowledge Graph Retrieval-Augmented Generation for LLM-based Recommendation"* and is being reorganized to host follow-up methods that build on top of K-RagRec.
+本仓库源自 ACL 2025 论文 *"Knowledge Graph Retrieval-Augmented Generation for LLM-based Recommendation"* 的官方 PyTorch 实现，目前已被重新组织，用于承载在 K-RagRec 之上的后续创新方法。
 
-The original code lives untouched in `methods/baseline/` and serves as a reproducible reference. New methods are added as sibling directories under `methods/` (one directory per method, copied from baseline and modified in place). See `methods/README.md` for the per-method index.
+原始代码原封不动地保留在 `methods/baseline/` 中，作为可复现的参考基线。每个新方法以同级子目录的形式加入 `methods/`（一个目录对应一个方法，从 baseline 复制后就地修改）。每个方法的入口和说明见 `methods/README.md`。
 
-## Repository Layout
+## 仓库结构
 
 ```
 K-ragrec/
 ├── methods/
-│   ├── README.md                # method index + per-method runbooks
-│   └── baseline/                # original K-RagRec code (read-only reference)
+│   ├── README.md                # 方法索引 + 每个方法的运行手册
+│   └── baseline/                # 原始 K-RagRec 代码（只读参考）
 │       ├── train.py
 │       ├── evaluate.py
 │       ├── retrieve.py
 │       ├── run.sh
 │       └── src/
-├── dataset/                     # shared datasets (ML1M / ml-20m / book / fb)
-├── paper/                       # paper PDF + analysis docs
+├── dataset/                     # 共享数据集（ML1M / ml-20m / book / fb）
+├── paper/                       # 论文 PDF + 分析文档
 │   ├── K-RagRec.pdf
-│   ├── CODE_ANALYSIS.md         # paper-vs-code audit
-│   ├── RELATED_WORKS.md         # 46-paper related-work survey
-│   └── INNOVATIONS.md           # H/M/L innovation backlog
+│   ├── CODE_ANALYSIS.md         # 论文 vs 代码逐行对照
+│   ├── RELATED_WORKS.md         # 46 篇相关论文调研
+│   └── INNOVATIONS.md           # 高/中/低优先级创新点清单
 ├── pyproject.toml, uv.lock
 └── README.md
 ```
 
-## Environment
+## 环境
 
 - Python==3.9
 - numpy==1.23.4
@@ -36,32 +36,32 @@ K-ragrec/
 - networkx==2.8.7
 - peft==0.12.0
 
-## Datasets
+## 数据集
 
-Three datasets are supported: MovieLens-1M, MovieLens-20M, Amazon Book. Only ML1M is processed in-repo; raw data for the other two is provided. KG comes from Freebase, filtered per dataset.
+支持三个数据集：MovieLens-1M、MovieLens-20M、Amazon Book。仓库内仅 ML1M 已经处理好，其它两个仅提供原始数据。知识图谱用 Freebase 按数据集过滤而来。
 
-Processed ML1M + KG: https://drive.google.com/file/d/1MlEPkRj47WrdXECUiz5D6Ie1oMv4hKC9/view
+ML1M + KG 处理后的下载链接：https://drive.google.com/file/d/1MlEPkRj47WrdXECUiz5D6Ie1oMv4hKC9/view
 
-## Running the Baseline
+## 运行 baseline
 
-> **Reproducing on a server?** See `tools/server_checklist.md` for the full Linux/bash runbook (uv install, dependency pinning, smoke test, tmux long-train tips, expected paper numbers).
+> **要在服务器上复现？** 请看 `tools/server_checklist.md`，里面有完整的 Linux/bash 启动手册（uv 安装、依赖锁定、冒烟测试、tmux 长跑技巧、对照论文的目标数字）。
 >
-> The PowerShell snippets below are for local dev / smoke checks. LLaMA-2-7B does not fit on consumer GPUs in fp16 — full training requires the server.
+> 下面的 PowerShell 片段是给本地开发 / 冒烟检查用的。LLaMA-2-7B 的 fp16 在消费级 GPU 上塞不下，正式训练必须上服务器。
 
-All commands assume the repo root (`K-ragrec/`) as the working directory. `dataset/` paths inside the code are resolved relative to cwd, so do NOT `cd` into `methods/baseline/`.
+所有命令都在仓库根目录（`K-ragrec/`）下执行。代码里的 `dataset/` 路径是相对当前工作目录解析的，**不要 `cd` 进 `methods/baseline/`**。
 
-`PYTHONPATH` is set to `methods/baseline` so that `from src.model import ...` resolves correctly.
+`PYTHONPATH` 设为 `methods/baseline`，这样 `from src.model import ...` 才能正常解析。
 
-### Retrieval-only smoke test (no LLM, runs anywhere)
+### 仅检索冒烟测试（不加载 LLM，任何机器都能跑）
 
 ```powershell
 $env:PYTHONPATH = "methods/baseline"
 python tools/smoke_retrieval.py
 ```
 
-Expected last line: `[OK] Retrieval pipeline smoke test passed.`
+期望最后一行：`[OK] Retrieval pipeline smoke test passed.`
 
-### Train
+### 训练
 
 ```powershell
 $env:PYTHONPATH = "methods/baseline"
@@ -79,7 +79,7 @@ python methods/baseline/train.py `
     --adaptive_ratio 5
 ```
 
-### Evaluate
+### 评测
 
 ```powershell
 $env:PYTHONPATH = "methods/baseline"
@@ -97,7 +97,7 @@ python methods/baseline/evaluate.py `
     --adaptive_ratio 5
 ```
 
-### Multi-GPU
+### 多 GPU
 
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = "0,1"
@@ -105,15 +105,15 @@ $env:PYTHONPATH = "methods/baseline"
 python methods/baseline/train.py ...
 ```
 
-## Running Other Methods
+## 运行其它方法
 
-Each new method directory follows the same pattern. Replace `methods/baseline` with `methods/<method_name>` in both `PYTHONPATH` and the script path. See `methods/README.md` for the per-method runbooks.
+每个新方法目录的命令模式相同——把 `methods/baseline` 替换成 `methods/<方法名>` 即可（`PYTHONPATH` 和脚本路径都要换）。每个方法目录下的 README 有针对该方法的具体启动命令。
 
-## Hardware
+## 硬件
 
-The original paper runs on 2× NVIDIA A6000-48GB. For single-GPU setups, switch to `graph_llm_for_one_GPU` (if/when present in a method's `src/model/`).
+原论文用 2× NVIDIA A6000-48GB。如果只有单卡 GPU，方法目录下的 `src/model/` 里如果存在 `graph_llm_for_one_GPU` 就改用它。
 
-## Citation
+## 引用
 
 ```
 @article{wang2025knowledge,
