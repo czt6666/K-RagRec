@@ -1,0 +1,56 @@
+import argparse
+
+
+def parse_args_llama():
+    parser = argparse.ArgumentParser(description="K-RagRec")
+
+    parser.add_argument("--model_name", type=str, default='graph_llm')
+    parser.add_argument("--project", type=str, default="K-RagRec")
+    parser.add_argument("--seed", type=int, default=9)
+        
+    parser.add_argument("--dataset", type=str, default='ml1m')
+    parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--wd", type=float, default=0.05)
+    parser.add_argument("--patience", type=float, default=2)
+
+    # Model Training
+    parser.add_argument("--batch_size", type=int, default=3)
+    parser.add_argument("--grad_steps", type=int, default=2)
+
+    # Learning Rate Scheduler
+    parser.add_argument("--num_epochs", type=int, default=3)
+    parser.add_argument("--warmup_epochs", type=float, default=1)
+    # Inference
+    parser.add_argument("--eval_batch_size", type=int, default=5)
+
+    # LLM related
+    parser.add_argument("--llm_model_name", type=str, default='7b')
+    parser.add_argument("--llm_model_path", type=str, default='')
+    parser.add_argument("--llm_frozen", type=str, default='True')
+    parser.add_argument("--llm_num_virtual_tokens", type=int, default=10)
+    parser.add_argument("--output_dir", type=str, default='output')
+    parser.add_argument("--max_txt_len", type=int, default=512)
+    parser.add_argument("--max_new_tokens", type=int, default=64)
+
+    # GNN related
+    parser.add_argument("--gnn_model_name", type=str, default='gt')
+    parser.add_argument("--gnn_num_layers", type=int, default=4)
+    parser.add_argument("--gnn_in_dim", type=int, default=1024)
+    parser.add_argument("--gnn_hidden_dim", type=int, default=1024)
+    parser.add_argument("--gnn_num_heads", type=int, default=4)
+    parser.add_argument("--gnn_dropout", type=float, default=0.0)
+
+    #retrieve
+    parser.add_argument("--adaptive_ratio", type=int, default=5) #The integers from 1 to 10 correspond to 0.1 to 1.
+    parser.add_argument("--sub_graph_numbers", type=int, default=3)
+    parser.add_argument("--reranking_numbers", type=int, default=5)
+
+    # H2 retrieval gate
+    parser.add_argument("--gate_use_gumbel", action='store_true',
+                        help="If set, use Gumbel-Sigmoid (straight-through) for gate during training.")
+    parser.add_argument("--gate_tau", type=float, default=1.0,
+                        help="Temperature for Gumbel-Sigmoid.")
+    parser.add_argument("--gate_sparsity_lambda", type=float, default=0.0,
+                        help="L1-style penalty on the mean gate weight; encourages skipping uninformative subgraphs.")
+    args = parser.parse_args()
+    return args
