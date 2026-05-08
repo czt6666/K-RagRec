@@ -28,13 +28,33 @@ K-ragrec/
 
 ## 环境
 
-- Python==3.9
-- numpy==1.23.4
-- torch==2.4.1
-- cuda==11.8.89
-- transformers==4.45.2
-- networkx==2.8.7
-- peft==0.12.0
+- Python 3.10–3.12
+- torch 2.5.1 + cu121
+- transformers 4.45.2
+- peft 0.12.0
+- networkx 2.8.7
+- torch-scatter 2.1.2（独立装，见下）
+
+## 依赖安装
+
+仓库带 `pyproject.toml` + `uv.lock`，已经把 torch 全家桶（`torch==2.5.1`、`torchvision==0.20.1`、`torchaudio==2.5.1`）和 PyTorch 的 cu121 wheel 索引都配好了。`torch-scatter` 由于没有 PyPI wheel、sdist 又是构建期循环依赖（要 torch 已经装好），单独走 PyG 的 wheel 镜像。
+
+```bash
+# 在仓库根目录
+git clone https://github.com/czt6666/K-RagRec.git
+cd K-RagRec
+
+# 1) 装基本依赖（uv 会自己建 .venv，按 uv.lock 解锁所有版本）
+uv sync
+
+# 2) 装 torch-scatter（注意：必须在 uv sync 之后，因为它的构建需要 torch）
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu121.html
+
+# 3) 进 venv 后续命令都在里面跑
+source .venv/bin/activate
+```
+
+如果服务器上 torch 已经装在系统 Python 里，又不想 uv 重装一份，参考 `tools/server_checklist.md` 里的「pip 直装」备选路径。
 
 ## 数据集
 

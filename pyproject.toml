@@ -1,13 +1,47 @@
 [project]
 name = "k-ragrec"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.9"
+description = "K-RagRec with H1-H5 innovations on top of the ACL 2025 paper"
+requires-python = ">=3.10,<3.13"
 dependencies = [
+    # Deep-learning stack — pinned to the server-side environment that
+    # was built from PyTorch's cu121 wheel index:
+    #   pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    #       --index-url https://download.pytorch.org/whl/cu121
+    "torch==2.5.1",
+    "torchvision==0.20.1",
+    "torchaudio==2.5.1",
+    "torch-geometric==2.6.1",
+    "transformers==4.45.2",
+    "peft==0.12.0",
+    "accelerate>=0.30",
+    "networkx==2.8.7",
+    # Tokenizer + HF hub utilities
     "sentencepiece>=0.1.99",
+    "huggingface-hub>=0.24",
+    # Retrieval / KG / data preprocessing
+    "pcst-fast>=1.0.10",
     "gensim>=4.4.0",
     "pandas>=2.3.3",
-    "pcst-fast>=1.0.10",
     "scikit-learn>=1.6.1",
     "wandb>=0.25.1",
+    # NOTE: torch-scatter is intentionally NOT in this list.
+    # It has no PyPI wheels and its sdist needs torch already installed at
+    # build time, which conflicts with uv's isolated build env. Install it
+    # ONCE after `uv sync`:
+    #   uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu121.html
+    # See README "依赖安装" section for the full server bootstrap.
 ]
+
+# Pull torch family from PyTorch's own cu121 wheel index (PyPI ships a
+# different default CUDA build for torch 2.5.1 that wouldn't match the cu121
+# torch-scatter wheel installed in the post-step).
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+torchaudio = { index = "pytorch-cu121" }

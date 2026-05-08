@@ -49,45 +49,43 @@ huggingface-cli download meta-llama/Llama-2-7b-hf \
 
 ## 2. Python + 依赖
 
-下面两条路二选一，仓库里有 `pyproject.toml` + `uv.lock`，所以 `uv` 是最稳的复现路径。
+仓库 `pyproject.toml` 锁了 torch 2.5.1 + cu121（与作者机器上预装的版本一致）。下面两条路二选一。
 
-### A. uv（推荐，与 uv.lock 完全对齐）
+### A. uv（推荐，与 uv.lock 对齐）
 
 ```bash
 # 装 uv（一行）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.local/bin/env  # 或重启 shell
 
-# 在项目里固定 Python 3.9
-uv python install 3.9
-uv venv --python 3.9
-source .venv/bin/activate
-
-# 按 pyproject + uv.lock 安装一切
+# 进项目目录后，uv 会按 pyproject 自动建 .venv（默认 Python 3.10+）
 uv sync
+
+# torch-scatter 单独装（无 PyPI wheel，需 torch 已就绪，所以放 uv sync 之后）
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu121.html
+
+source .venv/bin/activate
 ```
 
-### B. 纯 pip + venv
+### B. 纯 pip（系统 Python 已经装好 torch 时）
+
+如果你已经像下面这样把 torch 装在系统 Python 里：
 
 ```bash
-python3.9 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-
-# Torch 2.4.1 + CUDA 11.8（与论文环境一致）
-pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu118
-
-# PyG 全家桶 —— wheel 必须对应 torch 2.4.1 + cu118
-pip install torch-geometric==2.6.1
-pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.1+cu118.html
-
-# 其余依赖
-pip install transformers==4.45.2 peft==0.12.0 accelerate
-pip install networkx==2.8.7 pandas scikit-learn sentencepiece gensim wandb
-pip install pcst-fast
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu121
 ```
 
-> 如果 `torch-scatter` 编译失败：要么确认 CUDA toolkit 与 torch 自带 CUDA 一致，要么从上面的预编译 wheel index 装。
+那就不用 uv，直接把剩下的依赖装进同一个解释器：
+
+```bash
+pip install torch-geometric==2.6.1 transformers==4.45.2 peft==0.12.0 \
+    accelerate networkx==2.8.7 sentencepiece huggingface-hub \
+    pcst-fast gensim pandas scikit-learn wandb
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.0+cu121.html
+```
+
+> 如果 `torch-scatter` 编译失败：确认 torch 已经能 `import torch` 跑通，CUDA 主版本对得上 (cu121)，再从上面的预编译 wheel index 装。
 
 ---
 
