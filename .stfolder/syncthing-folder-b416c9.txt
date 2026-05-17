@@ -1,0 +1,5 @@
+# This directory is a Syncthing folder marker.
+# Do not delete.
+
+folderID: rrid4-dkern
+created: 2026-05-17T21:35:10+08:00
