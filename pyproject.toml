@@ -25,6 +25,8 @@ dependencies = [
     "pandas>=2.3.3",
     "scikit-learn>=1.6.1",
     "wandb>=0.25.1",
+    "tqdm>=4.66.0",
+    "numpy>=1.26.0",
     # NOTE: torch-scatter is intentionally NOT in this list.
     # It has no PyPI wheels and its sdist needs torch already installed at
     # build time, which conflicts with uv's isolated build env. Install it

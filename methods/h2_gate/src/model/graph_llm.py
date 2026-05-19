@@ -2,7 +2,7 @@ import contextlib
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from torch_scatter import scatter
+from torch_geometric.utils import scatter
 from src.model.gnn import load_gnn_model
 from src.model.gate import RetrievalGate
 from torch_geometric.data import Batch
