@@ -108,9 +108,28 @@ def main(args):
                 recalls_10.append(recall_10)
             print(f"Recall@1: {sum(recalls_1) / len(recalls_1)}, Recall@3: {sum(recalls_3) / len(recalls_3)}, Recall@5: {sum(recalls_5) / len(recalls_5)}, Recall@10: {sum(recalls_10) / len(recalls_10)}")
 
-    # print(f'Final ACC: ', accuracy_score(gold, pred))
-    
-            
+    # compute accuracy from top-1 prediction (first element of each ranked list)
+    top1_pred = [p[0] if p else -1 for p in pred]
+    acc = accuracy_score(gold, top1_pred) if pred else 0.0
+    final_results = {
+        "method": "h4_temporal",
+        "dataset": args.dataset,
+        "llm_model_name": args.llm_model_name,
+        "gnn_model_name": args.gnn_model_name,
+        "num_samples": len(gold),
+        "accuracy": acc,
+        "recall@1": sum(recalls_1) / len(recalls_1) if recalls_1 else 0.0,
+        "recall@3": sum(recalls_3) / len(recalls_3) if recalls_3 else 0.0,
+        "recall@5": sum(recalls_5) / len(recalls_5) if recalls_5 else 0.0,
+        "recall@10": sum(recalls_10) / len(recalls_10) if recalls_10 else 0.0,
+    }
+    os.makedirs(f"{args.output_dir}/{args.dataset}", exist_ok=True)
+    result_path = f"{args.output_dir}/{args.dataset}/h4_temporal_results.json"
+    with open(result_path, "w") as f:
+        json.dump(final_results, f, indent=2, ensure_ascii=False)
+    print(f"Evaluation results saved to {result_path}")
+    print(json.dumps(final_results, indent=2, ensure_ascii=False))
+
 if __name__ == "__main__":
     args = parse_args_llama()
 

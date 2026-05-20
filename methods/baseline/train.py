@@ -24,6 +24,10 @@ from retrieve import GraphRetrieval
 
 
 def main(args):
+    os.makedirs(f'{args.output_dir}/{args.dataset}', exist_ok=True)
+    train_log = []
+    start_time = time.time()
+
 
     seed_everything(seed=args.seed)
     print(args)
@@ -84,10 +88,36 @@ def main(args):
                 loss.backward()
                 clip_grad_norm_(optimizer.param_groups[0]['params'], 0.1)
                 optimizer.step()
-                print(f'{i}-th LOSS:', loss.item())
+                loss_val = loss.item()
+                train_log.append({"epoch": epoch, "step": i, "loss": loss_val})
+                print(f'{i}-th LOSS:', loss_val)
                 print("Epoch %s: Training Process is %s/9000" % (epoch, i*5))
             print("Epoch %s is finished"%(epoch))
+            epoch_log_path = f"{args.output_dir}/{args.dataset}/baseline_train_log.json"
+            with open(epoch_log_path, "w") as f:
+                json.dump(train_log, f, indent=2)
             _save_checkpoint(model, optimizer, epoch, args, is_best=True)
+            elapsed = time.time() - start_time
+            summary = {
+                "method": "baseline",
+                "dataset": args.dataset,
+                "llm_model_name": args.llm_model_name,
+                "gnn_model_name": args.gnn_model_name,
+                "num_epochs": args.num_epochs,
+                "batch_size": args.batch_size,
+                "total_steps": len(train_log),
+                "final_epoch": epoch,
+                "elapsed_seconds": elapsed,
+            }
+            if train_log:
+                losses = [r["loss"] for r in train_log]
+                summary["avg_loss"] = sum(losses) / len(losses)
+                summary["min_loss"] = min(losses)
+                summary["max_loss"] = max(losses)
+            summary_path = f"{args.output_dir}/{args.dataset}/baseline_train_summary.json"
+            with open(summary_path, "w") as f:
+                json.dump(summary, f, indent=2)
+            print(f"Training summary saved to {summary_path}")
             print("Save checkpoint")
 
 

@@ -107,8 +107,24 @@ def main(args):
             print(f"Recall@1: {sum(recalls_1) / len(recalls_1)}, Recall@3: {sum(recalls_3) / len(recalls_3)}, Recall@5: {sum(recalls_5) / len(recalls_5)}, Recall@10: {sum(recalls_10) / len(recalls_10)}")
 
     # print(f'Final ACC: ', accuracy_score(gold, pred))
-    
-            
+    final_results = {
+        "method": "baseline",
+        "dataset": args.dataset,
+        "llm_model_name": args.llm_model_name,
+        "gnn_model_name": args.gnn_model_name,
+        "recall@1": sum(recalls_1) / len(recalls_1),
+        "recall@3": sum(recalls_3) / len(recalls_3),
+        "recall@5": sum(recalls_5) / len(recalls_5),
+        "recall@10": sum(recalls_10) / len(recalls_10),
+    }
+    import os
+    os.makedirs(f"{args.output_dir}/{args.dataset}", exist_ok=True)
+    result_path = f"{args.output_dir}/{args.dataset}/baseline_results.json"
+    with open(result_path, "w") as f:
+        json.dump(final_results, f, indent=2)
+    print(f"Results saved to {result_path}")
+
+
 if __name__ == "__main__":
     args = parse_args_llama()
 
