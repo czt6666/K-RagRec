@@ -12,6 +12,8 @@
 
 检索 pipeline（`retrieve.py`）和 GNN 编码器（`src/model/gnn.py`）保持不变。
 
+> ⚠️ **必须指定不同的 `--output_dir`**。baseline 与 H1-H5 的 checkpoint 文件名不包含方法名，默认都写到 `output/ml1m/` 下，会互相覆盖。训 baseline 用 `--output_dir output_baseline`，训 H1 用 `--output_dir output_h1`，以此类推。
+
 ## 运行（PowerShell）
 
 ```powershell
@@ -28,7 +30,8 @@ python methods/h1_qformer/train.py `
     --gnn_model_name gt --gnn_num_layers 4 `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 `
     --num_query_tokens 8 --qformer_num_heads 8 `
-    --llm_hidden_dim 4096
+    --llm_hidden_dim 4096 `
+    --output_dir output_h1
 
 # Qwen2-7B 用 --llm_hidden_dim 3584
 
@@ -38,7 +41,8 @@ python methods/h1_qformer/evaluate.py `
     --llm_model_name 7b --llm_frozen True --dataset ml1m `
     --batch_size 5 --gnn_model_name gt --gnn_num_layers 4 `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 `
-    --num_query_tokens 8 --qformer_num_heads 8 --llm_hidden_dim 4096
+    --num_query_tokens 8 --qformer_num_heads 8 --llm_hidden_dim 4096 `
+    --output_dir output_h1
 ```
 
 ## 冒烟测试

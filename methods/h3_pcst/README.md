@@ -13,6 +13,8 @@
 | `train.py` / `evaluate.py` | 把原来的 `whether_retrieval` + `retrieval_topk` 调用替换成单次 `pcst_retrieval_topk(input, sequence_id, ...)`。 |
 | `src/config.py` | 新增 `--pcst_anchor_prize`、`--pcst_topk_query_prize`、`--pcst_edge_cost`、`--pcst_max_nodes`。（其中 `_anchor_prize` 和 `_edge_cost` 是早期 PCST 时代留下的，目前未真正使用；常调的是 `--pcst_topk_query_prize` 和 `--pcst_max_nodes`。） |
 
+> ⚠️ **必须指定不同的 `--output_dir`**。baseline 与 H1-H5 的 checkpoint 文件名不包含方法名，默认都写到 `output/ml1m/` 下，会互相覆盖。训 baseline 用 `--output_dir output_baseline`，训 H3 用 `--output_dir output_h3`，以此类推。
+
 ## 运行（PowerShell）
 
 ```powershell
@@ -28,12 +30,14 @@ python methods/h3_pcst/train.py `
     --gnn_model_name gt --gnn_num_layers 4 `
     --pcst_anchor_prize 10.0 `
     --pcst_topk_query_prize 20 `
-    --pcst_max_nodes 200
+    --pcst_max_nodes 200 `
+    --output_dir output_h3
 
 python methods/h3_pcst/evaluate.py `
     --model_name graph_llm --llm_model_name 7b --llm_frozen True --dataset ml1m `
     --batch_size 5 --gnn_model_name gt --gnn_num_layers 4 `
-    --pcst_anchor_prize 10.0 --pcst_topk_query_prize 20 --pcst_max_nodes 200
+    --pcst_anchor_prize 10.0 --pcst_topk_query_prize 20 --pcst_max_nodes 200 `
+    --output_dir output_h3
 ```
 
 ## 冒烟测试

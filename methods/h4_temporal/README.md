@@ -11,6 +11,8 @@
 | `train.py` / `evaluate.py` | 把每条样本的 `sequence_ids`（baseline 里就有的 10 个 ML1M id）放进 `samples['sequence_ids']`。 |
 | `src/config.py` | 新增 `--seq_vocab_size`（4000）、`--seq_max_len`（32）、`--seq_d_model`（256）、`--seq_nhead`（4）、`--seq_num_layers`（2）、`--seq_dropout`（0.1）。 |
 
+> ⚠️ **必须指定不同的 `--output_dir`**。baseline 与 H1-H5 的 checkpoint 文件名不包含方法名，默认都写到 `output/ml1m/` 下，会互相覆盖。训 baseline 用 `--output_dir output_baseline`，训 H4 用 `--output_dir output_h4`，以此类推。
+
 ## 运行（PowerShell）
 
 ```powershell
@@ -25,13 +27,15 @@ python methods/h4_temporal/train.py `
     --batch_size 5 `
     --gnn_model_name gt --gnn_num_layers 4 `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 `
-    --seq_d_model 256 --seq_num_layers 2
+    --seq_d_model 256 --seq_num_layers 2 `
+    --output_dir output_h4
 
 python methods/h4_temporal/evaluate.py `
     --model_name graph_llm --llm_model_name 7b --llm_frozen True --dataset ml1m `
     --batch_size 5 --gnn_model_name gt --gnn_num_layers 4 `
     --sub_graph_numbers 3 --reranking_numbers 5 --adaptive_ratio 5 `
-    --seq_d_model 256 --seq_num_layers 2
+    --seq_d_model 256 --seq_num_layers 2 `
+    --output_dir output_h4
 ```
 
 ## 冒烟测试
