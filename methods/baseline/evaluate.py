@@ -106,12 +106,14 @@ def main(args):
                 recalls_10.append(recall_10)
             print(f"Recall@1: {sum(recalls_1) / len(recalls_1)}, Recall@3: {sum(recalls_3) / len(recalls_3)}, Recall@5: {sum(recalls_5) / len(recalls_5)}, Recall@10: {sum(recalls_10) / len(recalls_10)}")
 
-    # print(f'Final ACC: ', accuracy_score(gold, pred))
+    top1_pred = [p[0] if p else -1 for p in pred]
+    acc = accuracy_score(gold, top1_pred) if pred else 0.0
     final_results = {
         "method": "baseline",
         "dataset": args.dataset,
         "llm_model_name": args.llm_model_name,
         "gnn_model_name": args.gnn_model_name,
+        "accuracy": acc,
         "recall@1": sum(recalls_1) / len(recalls_1),
         "recall@3": sum(recalls_3) / len(recalls_3),
         "recall@5": sum(recalls_5) / len(recalls_5),

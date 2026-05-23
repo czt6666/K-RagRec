@@ -1,0 +1,10 @@
+{
+  "method": "baseline",
+  "dataset": "ml1m",
+  "llm_model_name": "7b",
+  "gnn_model_name": "gt",
+  "recall@1": 0.049,
+  "recall@3": 0.142,
+  "recall@5": 0.237,
+  "recall@10": 0.499
+}
