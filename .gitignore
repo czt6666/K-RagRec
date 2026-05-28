@@ -47,3 +47,6 @@ env/
 Thumbs.db
 
 /.claude
+.stfolder/
+.stignore
+.stversions/
