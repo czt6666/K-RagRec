@@ -299,9 +299,29 @@ class GraphLLM(torch.nn.Module):
                 50,
                 51
             ]
-        output = self.tokenizer.batch_decode(sequences, skip_special_tokens=True) 
+        output = self.tokenizer.batch_decode(sequences, skip_special_tokens=True)
+
+        # Try to extract the first generated character directly from decoded text
+        batch_size = len(samples['id'])
+        decoded_preds = []
+        for i in range(batch_size):
+            text = output[i].strip()
+            pred_char = None
+            if len(text) > 0:
+                first_char = text[0].upper()
+                if 'A' <= first_char <= 'T':
+                    pred_char = first_char
+            decoded_preds.append(pred_char)
+
+        # Fallback to scores-based ranking if decoded text doesn't yield A-T
         specific_logits = torch.tensor(scores[:, option_indices], dtype=torch.float32).softmax(dim=-1)
         sorted_indices = specific_logits.argsort(dim=-1, descending=True)
+
+        # Override with decoded char when available
+        for i in range(batch_size):
+            if decoded_preds[i] is not None:
+                sorted_indices[i] = torch.tensor([ord(decoded_preds[i]) - ord('A')] + [j for j in range(20) if j != ord(decoded_preds[i]) - ord('A')])
+
         return sorted_indices
     
 

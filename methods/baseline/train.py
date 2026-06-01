@@ -82,6 +82,7 @@ def main(args):
         )
         model.train()
         for epoch in range(args.num_epochs):
+            adjust_learning_rate(optimizer.param_groups[0], args.lr, epoch, args)
             for i, batch_prompt in tqdm(enumerate(zip(batch(inputs_train), batch(questions_train), batch(gold_train), batch(target_all), batch(sequence_ids_train)))):
                 inputs, questions, golds, targets, sequence_ids = batch_prompt
                 optimizer.zero_grad()
