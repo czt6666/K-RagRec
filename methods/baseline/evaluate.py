@@ -61,7 +61,7 @@ def main(args):
             d = d+1
             #attack
             retrieve_movies_list=[]
-            retrieve_movies_list = retrieval_model.whether_retrieval(args.adaptive_ratio*sequence_id, 5)
+            retrieve_movies_list = retrieval_model.whether_retrieval(sequence_id, args.adaptive_ratio*len(sequence_id))
             graph.append(retrieval_model.retrieval_topk(input, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers))
             id.append(f'query{d}')
                 

@@ -6,7 +6,7 @@ load_model = {
 }
 
 llama_model_path = {
-    "7b": "meta-llama/Llama-2-7b-hf",
+    "7b": "/data/hf_cache/hub/models--meta-llama--Llama-2-7b-hf/snapshots/01c7f73d771dfac7d292323805ebc428287df4f9",
     "7b_chat": "meta-llama/Llama-2-7b-chat-hf",
     "qwen": "Qwen/Qwen2-7B",
     "qwen_chat": "Qwen/Qwen2-7B-Instruct",

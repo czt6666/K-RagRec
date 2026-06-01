@@ -122,8 +122,8 @@ class GraphRetrieval:
 
         subgraph_edge_features = self.G.edge_attr[[edge_to_index[(src, dst)] for src, dst in subgraph_edges if (src, dst) in edge_to_index]]
 
-        subgraph = Data(x=subgraph_node_features, edge_index=subgraph_edge_index, edge_attr=subgraph_edge_features, num_nodes=len(subgraph_nodes))
-
+        subgraph_nodes_list = list(subgraph_nodes)
+        subgraph = Data(x=subgraph_node_features, edge_index=subgraph_edge_index, edge_attr=subgraph_edge_features, num_nodes=len(subgraph_nodes), node_ids=torch.tensor(subgraph_nodes_list))
 
         return subgraph
 

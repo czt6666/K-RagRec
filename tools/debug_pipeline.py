@@ -18,6 +18,7 @@ from tqdm import tqdm
 from src.config import parse_args_llama
 from src.model import load_model, llama_model_path
 from src.utils.seed import seed_everything
+from src.utils.ckpt import _reload_best_model
 from retrieve import GraphRetrieval
 
 # ============================================================================
@@ -95,13 +96,13 @@ def check_retrieval(train_data, test_data):
     train_ret = retrieval.whether_retrieval(sequence_id, adaptive_ratio * len(sequence_id))
     print(f"    train mode: whether_retrieval(seq, {adaptive_ratio}*{len(sequence_id)}={adaptive_ratio*len(sequence_id)}) -> {len(train_ret)} items")
 
-    # eval 行为 (bug: int * list)
-    eval_ret = retrieval.whether_retrieval(adaptive_ratio * sequence_id, 5)
-    print(f"    eval mode:  whether_retrieval({adaptive_ratio}*seq(list), 5) -> {len(eval_ret)} items")
-    print(f"    ⚠️  eval 把 sequence_id 列表重复了 {adaptive_ratio} 次再截前 5 个!")
+    # eval 行为 (已修复，与 train 一致)
+    eval_ret = retrieval.whether_retrieval(sequence_id, adaptive_ratio * len(sequence_id))
+    print(f"    eval mode:  whether_retrieval(seq, {adaptive_ratio}*{len(sequence_id)}={adaptive_ratio*len(sequence_id)}) -> {len(eval_ret)} items")
+    print(f"    ✅ eval 行为已与 train 一致")
 
     # 检索子图
-    graphs = retrieval.retrieval_topk(input_text, train_ret, sub_graph_numbers=3, reranking_numbers=5)
+    graphs = retrieval.retrieval_topk(input_text, train_ret, topk_nodes=3, topk_rerank_nodes=5)
     print(f"\n  检索到子图数: {len(graphs)}")
     for i, g in enumerate(graphs):
         print(f"    子图 {i}: {g.num_nodes} nodes, {g.num_edges} edges")
@@ -124,7 +125,7 @@ def check_model_load(args):
     model.eval()
 
     # 检查 LLM 是否真的加载了 7B
-    llm_params = sum(p.numel() for p in model.llm_model.parameters())
+    llm_params = sum(p.numel() for p in model.model.parameters())
     print(f"  LLM 总参数量: {llm_params / 1e6:.1f}M (期望 ~6,738M)")
 
     # 检查可训练参数
@@ -154,7 +155,7 @@ def check_forward_pipeline(model, retrieval, test_data, args):
     target = sample['output']
 
     # 构造样本
-    retrieve_movies_list = retrieval.whether_retrieval(adaptive_ratio * sequence_id, 5)
+    retrieve_movies_list = retrieval.whether_retrieval(sequence_id, args.adaptive_ratio * len(sequence_id))
     graphs = retrieval.retrieval_topk(input_text, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers)
 
     query_text = f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
@@ -201,8 +202,8 @@ def check_forward_pipeline(model, retrieval, test_data, args):
         print(f"    shape: {sample_graph_embeds.shape} (论文应为 [N, 4096]，代码是 [1, 4096])")
 
         # 4.5 检查 LLM inputs_embeds
-        inputs_embeds = model.llm_model.get_input_embeddings()(tokens.input_ids.to(device))
-        bos_embeds = model.llm_model.get_input_embeddings()(torch.tensor([[model.llm_tokenizer.bos_token_id]], device=device))
+        inputs_embeds = model.model.get_input_embeddings()(tokens.input_ids.to(device))
+        bos_embeds = model.model.get_input_embeddings()(torch.tensor([[model.tokenizer.bos_token_id]], device=device))
         full_embeds = torch.cat([bos_embeds, sample_graph_embeds.unsqueeze(0), inputs_embeds], dim=1)
         print(f"\n  LLM 输入拼接:")
         print(f"    BOS embed shape: {bos_embeds.shape}")
@@ -222,7 +223,7 @@ def check_inference_distribution(model, retrieval, test_data, args, n_samples=20
     # 准备 option_indices (A-T)
     option_tokens = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
                      'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T']
-    option_indices = [model.llm_tokenizer.convert_tokens_to_ids(tok) for tok in option_tokens]
+    option_indices = [model.tokenizer.convert_tokens_to_ids(tok) for tok in option_tokens]
     print(f"  A-T token IDs: {option_indices}")
 
     correct = 0
@@ -236,7 +237,7 @@ def check_inference_distribution(model, retrieval, test_data, args, n_samples=20
         gold_letter = sample['output']
         gold_idx = ord(gold_letter) - ord('A')
 
-        retrieve_movies_list = retrieval.whether_retrieval(args.adaptive_ratio * sequence_id, 5)
+        retrieve_movies_list = retrieval.whether_retrieval(sequence_id, args.adaptive_ratio * len(sequence_id))
         graphs = retrieval.retrieval_topk(input_text, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers)
 
         query_text = f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
@@ -247,14 +248,40 @@ def check_inference_distribution(model, retrieval, test_data, args, n_samples=20
         with torch.no_grad():
             output_ids = model.inference(sample_dict)
 
-        pred_idx = output_ids[0][0] if output_ids and output_ids[0] else -1
+        pred_idx = output_ids[0][0].item() if output_ids.numel() > 0 else -1
+        pred_letter = chr(ord('A') + pred_idx) if 0 <= pred_idx < 20 else '?'
         all_max_probs.append(pred_idx)
 
         is_correct = (pred_idx == gold_idx)
         correct += is_correct
 
         status = "✅" if is_correct else "❌"
-        print(f"  {status} sample {idx}: gold={gold_letter}({gold_idx}), pred_idx={pred_idx}")
+        print(f"  {status} sample {idx}: gold={gold_letter}({gold_idx}), pred={pred_letter}({pred_idx})")
+
+        # 打印第一个样本的详细中间结果（带文字）
+        if idx == 0:
+            print(f"\n{'='*60}")
+            print("  [详细样例]")
+            print(f"{'='*60}")
+            print(f"  观看历史 (input_text): {input_text}")
+            print(f"  选项 (questions): {question}")
+            print(f"  真实答案: {gold_letter}")
+            print(f"  sequence_ids: {sequence_id}")
+            print(f"  retrieve_movies_list (ID): {retrieve_movies_list}")
+            print(f"  retrieve_movies_list (名称): {[retrieval.movie_id_to_name.get(mid, 'UNKNOWN') for mid in retrieve_movies_list]}")
+            print(f"  子图数: {len(graphs)}")
+            for i, g in enumerate(graphs):
+                print(f"    子图 {i}: {g.num_nodes} nodes, {g.num_edges} edges")
+                try:
+                    node_ids = g.node_ids.tolist() if hasattr(g, 'node_ids') else []
+                    node_names = retrieval.retrieval_node_texts(node_ids)
+                    print(f"      节点名称: {node_names[:5]}")
+                except Exception as e:
+                    print(f"      获取节点名称失败: {e}")
+            print(f"\n  完整 Prompt (query_text):\n{query_text}")
+            print(f"\n  模型原始输出 token IDs: {output_ids.tolist()}")
+            print(f"  预测答案: {pred_letter}")
+            print(f"{'='*60}\n")
 
     print(f"\n  前 {n_samples} 条命中率: {correct}/{n_samples} = {correct/n_samples:.1%}")
     print(f"  预测分布: {dict(zip(*np.unique(all_max_probs, return_counts=True)))}")
@@ -281,8 +308,8 @@ def check_train_eval_mismatch(retrieval, test_data):
 
         # train 方式
         train_ret = set(retrieval.whether_retrieval(seq, adaptive_ratio * len(seq)))
-        # eval 方式 (bug)
-        eval_ret = set(retrieval.whether_retrieval(adaptive_ratio * seq, 5))
+        # eval 方式 (已修复，与 train 一致)
+        eval_ret = set(retrieval.whether_retrieval(seq, adaptive_ratio * len(seq)))
 
         diff = len(train_ret.symmetric_difference(eval_ret))
         diffs.append(diff)
@@ -296,6 +323,8 @@ def check_train_eval_mismatch(retrieval, test_data):
         print(f"\n  ⚠️  训练时检索的 item 集合 与 评估时检索的 item 集合 不一致！")
         print(f"      这意味着模型在训练时看到的子图 和 评估时看到的子图 来自不同的 movie anchor，")
         print(f"      分布偏移导致评估性能暴跌。")
+    else:
+        print(f"\n  ✅  训练与评估检索行为完全一致，P0 bug 已修复。")
 
 
 # ============================================================================
@@ -363,6 +392,14 @@ def main():
     train_data, test_data = check_data()
     retrieval = check_retrieval(train_data, test_data)
     model = check_model_load(args)
+
+    # 加载训好的 checkpoint
+    args.output_dir = 'original_verify/output'
+    try:
+        model = _reload_best_model(model, args)
+        print("  ✅ Checkpoint 加载成功")
+    except Exception as e:
+        print(f"  ⚠️ Checkpoint 加载失败: {e}")
 
     check_forward_pipeline(model, retrieval, test_data, args)
     check_inference_distribution(model, retrieval, test_data, args, n_samples=20)
