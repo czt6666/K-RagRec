@@ -148,8 +148,9 @@ class GraphLLM(torch.nn.Module):
         
         eos_tokens = self.tokenizer(EOS, add_special_tokens=False)
         eos_user_tokens = self.tokenizer(EOS_USER, add_special_tokens=False)
-        bos_embeds = self.word_embedding(self.tokenizer(BOS, add_special_tokens=False, return_tensors='pt').input_ids[0])
-        pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).unsqueeze(0)
+        _embed_device = self.word_embedding.weight.device
+        bos_embeds = self.word_embedding(self.tokenizer(BOS, add_special_tokens=False, return_tensors='pt').input_ids[0].to(_embed_device))
+        pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id).to(_embed_device)).unsqueeze(0)
 
         # encode graphs
         graph_embeds_list = self.encode_graphs(samples)
@@ -204,12 +205,13 @@ class GraphLLM(torch.nn.Module):
         questions = self.tokenizer(samples["question"], add_special_tokens=False)
         # encode special tokens
         eos_user_tokens = self.tokenizer(EOS_USER, add_special_tokens=False)
-        bos_embeds = self.word_embedding(self.tokenizer(BOS, add_special_tokens=False, return_tensors='pt').input_ids[0])
-        pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id)).unsqueeze(0)
+        _embed_device = self.word_embedding.weight.device
+        bos_embeds = self.word_embedding(self.tokenizer(BOS, add_special_tokens=False, return_tensors='pt').input_ids[0].to(_embed_device))
+        pad_embeds = self.word_embedding(torch.tensor(self.tokenizer.pad_token_id).to(_embed_device)).unsqueeze(0)
 
         # encode graphs
         graph_embeds_list = self.encode_graphs(samples)
-        
+
         
 
         projected_graph_embeds_list = [self.projector(g_embeds) for g_embeds in graph_embeds_list]

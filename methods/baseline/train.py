@@ -49,27 +49,33 @@ def main(args):
         sequence_ids_train = [json.loads(_.get('sequence_ids', '[]')) for _ in train_data]
         target_all = [_['output'] for _ in train_data]
 
-        def train(inputs, questions=None, gold=None, targets=None, sequence_ids=None):
+        # Pre-cache all graphs once to avoid repeated CPU retrieval during training
+        print("Pre-computing graphs for all training samples...")
+        cached_graphs_train = []
+        for inp, sid in tqdm(zip(inputs_train, sequence_ids_train), total=len(inputs_train)):
+            retrieve_movies_list = retrieval_model.whether_retrieval(sid, args.adaptive_ratio * len(sid))
+            cached_graphs_train.append(retrieval_model.retrieval_topk(inp, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers))
+        print("Graph pre-computation done.")
+
+        def train(inputs, questions=None, gold=None, targets=None, graphs=None):
             id=[]
             query=[]
             graph=[]
             label=[]
             sample = {'id':id,'graph':graph, 'question':query, 'label':label}
             d = 0
-            for input, question, target, sequence_id in zip(inputs, questions, targets, sequence_ids):
+            for input, question, target, g in zip(inputs, questions, targets, graphs):
                 d = d+1
                 id.append(f'query{d}')
-                      
-                query.append(f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.  
-                            ### Instruction: Given the user's watching history, selecting a film that is most likely to interest the user from the options. ### Watching history: {input}. ###Options: {question}. Select a movie from options A to T that the user is most likely to be interested in. Please answer "A" or "B" or "C" or "D" or "E" or "F" or "G" or "H" or "I" or "J" or "K" or "L" or "M" or "N" or "O" or "P" or "Q" or "R" or "S" or "T" only".""")                    
+
+                query.append(f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+                            ### Instruction: Given the user's watching history, selecting a film that is most likely to interest the user from the options. ### Watching history: {input}. ###Options: {question}. Select a movie from options A to T that the user is most likely to be interested in. Please answer "A" or "B" or "C" or "D" or "E" or "F" or "G" or "H" or "I" or "J" or "K" or "L" or "M" or "N" or "O" or "P" or "Q" or "R" or "S" or "T" only".""")
                 label.append(target)
-                retrieve_movies_list=[]
-                retrieve_movies_list = retrieval_model.whether_retrieval(sequence_id,args.adaptive_ratio*len(sequence_id))
-                graph.append(retrieval_model.retrieval_topk(input, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers))
+                graph.append(g)
             loss = model.forward(sample)
             return loss
-        
-    
+
+
         def batch(list, batch_size=args.batch_size):
                 chunk_size = (len(list) - 1) // batch_size + 1
                 for i in range(chunk_size):
@@ -83,10 +89,10 @@ def main(args):
         model.train()
         for epoch in range(args.num_epochs):
             adjust_learning_rate(optimizer.param_groups[0], args.lr, epoch, args)
-            for i, batch_prompt in tqdm(enumerate(zip(batch(inputs_train), batch(questions_train), batch(gold_train), batch(target_all), batch(sequence_ids_train)))):
-                inputs, questions, golds, targets, sequence_ids = batch_prompt
+            for i, batch_prompt in tqdm(enumerate(zip(batch(inputs_train), batch(questions_train), batch(gold_train), batch(target_all), batch(cached_graphs_train)))):
+                inputs, questions, golds, targets, graphs = batch_prompt
                 optimizer.zero_grad()
-                loss = train(inputs, questions, golds, targets, sequence_ids)
+                loss = train(inputs, questions, golds, targets, graphs)
                 loss.backward()
                 clip_grad_norm_(optimizer.param_groups[0]['params'], 0.1)
                 optimizer.step()
