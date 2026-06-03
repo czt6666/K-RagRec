@@ -50,3 +50,6 @@ Thumbs.db
 .stfolder/
 .stignore
 .stversions/
+
+.venv/
+.venv.bak/
