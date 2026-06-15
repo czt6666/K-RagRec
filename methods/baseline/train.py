@@ -50,12 +50,28 @@ def main(args):
         target_all = [_['output'] for _ in train_data]
 
         # Pre-cache all graphs once to avoid repeated CPU retrieval during training
-        print("Pre-computing graphs for all training samples...")
-        cached_graphs_train = []
-        for inp, sid in tqdm(zip(inputs_train, sequence_ids_train), total=len(inputs_train)):
-            retrieve_movies_list = retrieval_model.whether_retrieval(sid, args.adaptive_ratio * len(sid))
-            cached_graphs_train.append(retrieval_model.retrieval_topk(inp, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers))
-        print("Graph pre-computation done.")
+        graph_cache_path = f"dataset/ML1M/cached_graphs_train_r{args.adaptive_ratio}_sg{args.sub_graph_numbers}_rr{args.reranking_numbers}.pt"
+        if os.path.exists(graph_cache_path):
+            print(f"Loading cached graphs from {graph_cache_path}...")
+            cached_graphs_train = torch.load(graph_cache_path, weights_only=False)
+            print(f"Loaded {len(cached_graphs_train)} cached graphs.")
+            del retrieval_model
+            gc.collect()
+            torch.cuda.empty_cache()
+            print("SBERT released, GPU memory freed.")
+        else:
+            print("Pre-computing graphs for all training samples...")
+            cached_graphs_train = []
+            for inp, sid in tqdm(zip(inputs_train, sequence_ids_train), total=len(inputs_train)):
+                retrieve_movies_list = retrieval_model.whether_retrieval(sid, args.adaptive_ratio * len(sid))
+                cached_graphs_train.append(retrieval_model.retrieval_topk(inp, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers))
+            print("Graph pre-computation done.")
+            torch.save(cached_graphs_train, graph_cache_path)
+            print(f"Saved cached graphs to {graph_cache_path}.")
+            del retrieval_model
+            gc.collect()
+            torch.cuda.empty_cache()
+            print("SBERT released, GPU memory freed.")
 
         def train(inputs, questions=None, gold=None, targets=None, graphs=None):
             id=[]
@@ -91,11 +107,12 @@ def main(args):
             adjust_learning_rate(optimizer.param_groups[0], args.lr, epoch, args)
             for i, batch_prompt in tqdm(enumerate(zip(batch(inputs_train), batch(questions_train), batch(gold_train), batch(target_all), batch(cached_graphs_train)))):
                 inputs, questions, golds, targets, graphs = batch_prompt
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
                 loss = train(inputs, questions, golds, targets, graphs)
                 loss.backward()
                 clip_grad_norm_(optimizer.param_groups[0]['params'], 0.1)
                 optimizer.step()
+                torch.cuda.empty_cache()
                 loss_val = loss.item()
                 train_log.append({"epoch": epoch, "step": i, "loss": loss_val})
                 print(f'{i}-th LOSS:', loss_val)

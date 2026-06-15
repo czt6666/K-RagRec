@@ -1,0 +1,14 @@
+{
+  "method": "baseline",
+  "dataset": "ml1m",
+  "llm_model_name": "7b",
+  "gnn_model_name": "gt",
+  "num_epochs": 10,
+  "batch_size": 5,
+  "total_steps": 12600,
+  "final_epoch": 6,
+  "elapsed_seconds": 159399.63993763924,
+  "avg_loss": 2.5137109057297784,
+  "min_loss": 1.2372113466262817,
+  "max_loss": 9.35262393951416
+}
