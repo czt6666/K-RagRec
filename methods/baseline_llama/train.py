@@ -1,0 +1,154 @@
+import os
+import time
+# import wandb
+import gc
+from tqdm import tqdm
+import torch
+import json
+import pandas as pd
+from torch.utils.data import DataLoader
+from torch.nn.utils import clip_grad_norm_
+
+from src.model import load_model, llama_model_path
+from src.config import parse_args_llama
+from src.utils.ckpt import _save_checkpoint, _reload_best_model
+from src.utils.seed import seed_everything
+from src.utils.lr_schedule import adjust_learning_rate
+from torch.utils.data import DataLoader, Dataset
+from sklearn.metrics import accuracy_score, roc_auc_score, f1_score
+import networkx as nx
+
+import numpy as np
+import re
+from tqdm import tqdm
+from retrieve import GraphRetrieval
+
+
+def main(args):
+    os.makedirs(f'{args.output_dir}/{args.dataset}', exist_ok=True)
+    train_log = []
+    start_time = time.time()
+
+
+    seed_everything(seed=args.seed)
+    print(args)
+    #set training set
+    train_data_path: str = f"dataset/ML1M/10000_data_id_20.json"
+    args.llm_model_path = llama_model_path[args.llm_model_name]
+    model = load_model[args.model_name](args=args)
+    retrieval_model=GraphRetrieval(model_name='sbert', path='dataset/fb')
+
+
+
+    gold_train = []
+    with open(train_data_path, 'r') as f:
+        train_data = json.load(f)[:9000]#Take the first 9000 as training set as an example
+        inputs_train = [_['input'] for _ in train_data]
+        questions_train = [_['questions'] for _ in train_data]
+        gold_train = [0 if _['output']=="A" else 1 if _['output']=="B" else 2 if _['output']=="C" else 3 if _['output']=="D" else 4 if _['output']=="E" else 5 if _['output']=="F" else 6 if _['output']=="G" else 7 if _['output']=="H" else 8 if _['output']=="I" else 9 if _['output']=="J" else 10 if _['output']=="K" else 11 if _['output']=="L" else 12 if _['output']=="M" else 13 if _['output']=="N" else 14 if _['output']=="O" else 15 if _['output']=="P" else 16 if _['output']=="Q" else 17 if _['output']=="R" else 18 if _['output']=="S" else 19 for _ in train_data]
+        sequence_ids_train = [json.loads(_.get('sequence_ids', '[]')) for _ in train_data]
+        target_all = [_['output'] for _ in train_data]
+
+        # Pre-cache all graphs once to avoid repeated CPU retrieval during training
+        graph_cache_path = f"dataset/ML1M/cached_graphs_train_r{args.adaptive_ratio}_sg{args.sub_graph_numbers}_rr{args.reranking_numbers}.pt"
+        if os.path.exists(graph_cache_path):
+            print(f"Loading cached graphs from {graph_cache_path}...")
+            cached_graphs_train = torch.load(graph_cache_path, weights_only=False)
+            print(f"Loaded {len(cached_graphs_train)} cached graphs.")
+            del retrieval_model
+            gc.collect()
+            torch.cuda.empty_cache()
+            print("SBERT released, GPU memory freed.")
+        else:
+            print("Pre-computing graphs for all training samples...")
+            cached_graphs_train = []
+            for inp, sid in tqdm(zip(inputs_train, sequence_ids_train), total=len(inputs_train)):
+                retrieve_movies_list = retrieval_model.whether_retrieval(sid, args.adaptive_ratio * len(sid))
+                cached_graphs_train.append(retrieval_model.retrieval_topk(inp, retrieve_movies_list, args.sub_graph_numbers, args.reranking_numbers))
+            print("Graph pre-computation done.")
+            torch.save(cached_graphs_train, graph_cache_path)
+            print(f"Saved cached graphs to {graph_cache_path}.")
+            del retrieval_model
+            gc.collect()
+            torch.cuda.empty_cache()
+            print("SBERT released, GPU memory freed.")
+
+        def train(inputs, questions=None, gold=None, targets=None, graphs=None):
+            id=[]
+            query=[]
+            graph=[]
+            label=[]
+            sample = {'id':id,'graph':graph, 'question':query, 'label':label}
+            d = 0
+            for input, question, target, g in zip(inputs, questions, targets, graphs):
+                d = d+1
+                id.append(f'query{d}')
+
+                query.append(f"""Given the user's watching history, select the film the user is most likely to be interested in from the options.
+Watching history: {input}.
+Options: {question}.
+Respond with exactly one letter from A to T. Do not include any other characters, and do not repeat the question or explain your choice.
+The answer is:""")
+                label.append(target)
+                graph.append(g)
+            loss = model.forward(sample)
+            return loss
+
+
+        def batch(list, batch_size=args.batch_size):
+                chunk_size = (len(list) - 1) // batch_size + 1
+                for i in range(chunk_size):
+                    yield list[batch_size * i: batch_size * (i + 1)]
+
+        params = [p for _, p in model.named_parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(
+        [{'params': params, 'lr': args.lr, 'weight_decay': args.wd}, ],
+        betas=(0.9, 0.95)
+        )
+        model.train()
+        for epoch in range(args.num_epochs):
+            adjust_learning_rate(optimizer.param_groups[0], args.lr, epoch, args)
+            for i, batch_prompt in tqdm(enumerate(zip(batch(inputs_train), batch(questions_train), batch(gold_train), batch(target_all), batch(cached_graphs_train)))):
+                inputs, questions, golds, targets, graphs = batch_prompt
+                optimizer.zero_grad(set_to_none=True)
+                loss = train(inputs, questions, golds, targets, graphs)
+                loss.backward()
+                clip_grad_norm_(optimizer.param_groups[0]['params'], 0.1)
+                optimizer.step()
+                torch.cuda.empty_cache()
+                loss_val = loss.item()
+                train_log.append({"epoch": epoch, "step": i, "loss": loss_val})
+                print(f'{i}-th LOSS:', loss_val)
+                print("Epoch %s: Training Process is %s/9000" % (epoch, i*5))
+            print("Epoch %s is finished"%(epoch))
+            epoch_log_path = f"{args.output_dir}/{args.dataset}/baseline_train_log.json"
+            with open(epoch_log_path, "w") as f:
+                json.dump(train_log, f, indent=2)
+            _save_checkpoint(model, optimizer, epoch, args, is_best=True)
+            elapsed = time.time() - start_time
+            summary = {
+                "method": "baseline",
+                "dataset": args.dataset,
+                "llm_model_name": args.llm_model_name,
+                "gnn_model_name": args.gnn_model_name,
+                "num_epochs": args.num_epochs,
+                "batch_size": args.batch_size,
+                "total_steps": len(train_log),
+                "final_epoch": epoch,
+                "elapsed_seconds": elapsed,
+            }
+            if train_log:
+                losses = [r["loss"] for r in train_log]
+                summary["avg_loss"] = sum(losses) / len(losses)
+                summary["min_loss"] = min(losses)
+                summary["max_loss"] = max(losses)
+            summary_path = f"{args.output_dir}/{args.dataset}/baseline_train_summary.json"
+            with open(summary_path, "w") as f:
+                json.dump(summary, f, indent=2)
+            print(f"Training summary saved to {summary_path}")
+            print("Save checkpoint")
+
+
+if __name__ == "__main__":
+    args = parse_args_llama()
+    main(args)
