@@ -293,7 +293,7 @@ class GraphLLM(torch.nn.Module):
             ranking += [j for j in range(20) if j not in seen]
             rankings.append(ranking)
 
-        return torch.tensor(rankings)
+        return torch.tensor(rankings), output
     
 
 

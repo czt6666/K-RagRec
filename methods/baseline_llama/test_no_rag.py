@@ -88,6 +88,7 @@ def main(args):
     recalls = {k: [] for k in RECALL_KS}
     gold_all = []
     pred_top1_all = []
+    detailed_logs = []
 
     for idx, sample in enumerate(data):
         gold_letter = sample['output']
@@ -98,6 +99,7 @@ def main(args):
         inputs = tokenizer(prompt, return_tensors='pt').to(model.device)
 
         decoded = ""
+        valid_format = False
         for attempt in range(args.max_retries):
             with torch.no_grad():
                 gen = model.generate(
@@ -111,6 +113,7 @@ def main(args):
             new_tokens = gen[0][inputs.input_ids.shape[1]:]
             decoded = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
             if is_valid_response(decoded, args.num_answers):
+                valid_format = True
                 break
 
         parts = [p.strip() for p in decoded.split(',')]
@@ -129,6 +132,22 @@ def main(args):
         hits = recall_at_k([gold_idx], ranking, RECALL_KS)
         for k in RECALL_KS:
             recalls[k].append(hits[k])
+
+        # Record detailed log
+        detailed_logs.append({
+            "sample_id": idx,
+            "question": sample['questions'],
+            "prompt": prompt,
+            "watching_history": sample['input'],
+            "raw_response": decoded,
+            "parsed_ranking": ranking,
+            "parsed_letters": [chr(ord('A') + idx) for idx in ranking[:args.num_answers]],
+            "gold_answer": gold_idx,
+            "gold_letter": gold_letter,
+            "valid_format": valid_format,
+            "retries_used": attempt + 1,
+            "soft_injection_enabled": False,
+        })
 
         if idx % 50 == 0:
             n = len(recalls[RECALL_KS[0]])
@@ -154,6 +173,16 @@ def main(args):
     with open(result_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Results saved to {result_path}")
+
+    # Save detailed logs
+    raw_dir = "output/raw"
+    os.makedirs(raw_dir, exist_ok=True)
+    log_name = f"{args.llm_model_name}_{args.dataset}_norag_detailed.jsonl"
+    log_path = os.path.join(raw_dir, log_name)
+    with open(log_path, "w") as f:
+        for entry in detailed_logs:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"Detailed logs saved to {log_path}")
 
 
 if __name__ == "__main__":

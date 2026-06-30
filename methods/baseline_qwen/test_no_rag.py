@@ -88,14 +88,15 @@ def main(args):
         data = json.load(f)[:args.num_samples]
 
     recalls = {k: [] for k in RECALL_KS}
+    detailed_logs = []
     for idx, sample in enumerate(data):
         gold_letter = sample['output']
         gold_idx = ord(gold_letter) - ord('A')
         prompt = build_prompt(tokenizer, sample['input'], sample['questions'], args.num_answers)
-        print("prompt: ", prompt)
 
         inputs = tokenizer(prompt, return_tensors='pt').to(model.device)
         decoded = ""
+        valid_format = False
         for attempt in range(args.max_retries):
             with torch.no_grad():
                 gen = model.generate(
@@ -111,16 +112,9 @@ def main(args):
             decoded = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
             if is_valid_response(decoded, args.num_answers):
+                valid_format = True
                 break
-            # print(f"[{idx}] invalid response on attempt {attempt}, retrying: {decoded!r}")
-        # else:
-            # print(f"[{idx}] giving up after {args.max_retries} attempts, last invalid response: {decoded!r}")
 
-        print("decoded: ", decoded)
-        print("currect: ", sample['output'])
-
-        # Split on commas, strip whitespace, dedupe while keeping the first
-        # occurrence of each letter.
         parts = [p.strip() for p in decoded.split(',')]
         ranking = []
         seen = set()
@@ -140,6 +134,22 @@ def main(args):
         for k in RECALL_KS:
             recalls[k].append(hits[k])
 
+        # Record detailed log
+        detailed_logs.append({
+            "sample_id": idx,
+            "question": sample['questions'],
+            "prompt": prompt,
+            "watching_history": sample['input'],
+            "raw_response": decoded,
+            "parsed_ranking": ranking,
+            "parsed_letters": [chr(ord('A') + idx) for idx in ranking[:args.num_answers]],
+            "gold_answer": gold_idx,
+            "gold_letter": gold_letter,
+            "valid_format": valid_format,
+            "retries_used": attempt + 1,
+            "soft_injection_enabled": False,
+        })
+
         pred_letters = ','.join(chr(ord('A') + j) for j in ranking[:args.num_answers])
         print(f"[{idx}] gold={gold_letter} decoded={decoded[:40]!r} ranking={pred_letters} hit@1={bool(hits[1])}")
 
@@ -148,6 +158,16 @@ def main(args):
     print(f"Samples: {n}")
     for k in RECALL_KS:
         print(f"Recall@{k}: {sum(recalls[k])/n:.3f}")
+
+    # Save detailed logs
+    raw_dir = "output/raw"
+    os.makedirs(raw_dir, exist_ok=True)
+    log_name = f"{args.llm_model_name}_norag_detailed.jsonl"
+    log_path = os.path.join(raw_dir, log_name)
+    with open(log_path, "w") as f:
+        for entry in detailed_logs:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"Detailed logs saved to {log_path}")
 
 
 if __name__ == "__main__":
@@ -158,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_new_tokens", type=int, default=15)
     parser.add_argument("--max_retries", type=int, default=5)
     parser.add_argument("--num_answers", type=int, default=5)
+    parser.add_argument("--output_dir", type=str, default="output_qwen_norag")
     args = parser.parse_args()
     main(args)
 

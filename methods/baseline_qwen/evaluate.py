@@ -69,14 +69,15 @@ Do not include any other characters, and do not repeat the question or explain y
 The {NUM_ANSWERS} ranked letters are:""")
             label.append('')
 
-        output = model.inference(sample).tolist()
-        return output
+        output, raw_texts = model.inference(sample)
+        return output.tolist(), query, raw_texts
 
     from tqdm import tqdm
     RECALL_KS = (1, 3, 5)
     gold = []
     pred = []
     recalls = {k: [] for k in RECALL_KS}
+    detailed_logs = []
     with open(test_data_path, 'r') as f:
         test_data = json.load(f)[9000:10000]
         inputs = [_['input'] for _ in test_data]
@@ -96,16 +97,33 @@ The {NUM_ANSWERS} ranked letters are:""")
             chunk_size = (len(list) - 1) // batch_size + 1
             for i in range(chunk_size):
                 yield list[batch_size * i: batch_size * (i + 1)]
-        for i, batch in tqdm(enumerate(zip(batch(inputs), batch(questions), batch(gold), batch(cached_graphs)))):
-            inputs_b, questions_b, golds, graphs_b = batch
-            output = evaluate(inputs_b, questions_b, golds, graphs_b)
+        for i, batch in enumerate(zip(batch(inputs), batch(questions), batch(gold), batch(cached_graphs), batch(sequence_ids))):
+            inputs_b, questions_b, golds, graphs_b, sid_b = batch
+            output, prompts, raw_texts = evaluate(inputs_b, questions_b, golds, graphs_b)
             pred.extend(output)
             start_index = len(pred) - len(golds)
-            ground_truth = gold[start_index:start_index + len(golds)]
-            for ind in range(len(golds)):
-                hits = recall_at_k([ground_truth[ind]], output[ind], RECALL_KS)
+            for j in range(len(golds)):
+                hits = recall_at_k([golds[j]], output[j], RECALL_KS)
                 for k in RECALL_KS:
                     recalls[k].append(hits[k])
+                # Record detailed log
+                retrieve_movies_list = retrieval_model.whether_retrieval(sid_b[j], args.adaptive_ratio * len(sid_b[j]))
+                retrieval_flags = [int(mid in retrieve_movies_list) for mid in sid_b[j]]
+                detailed_logs.append({
+                    "sample_id": start_index + j,
+                    "question": questions_b[j],
+                    "prompt": prompts[j],
+                    "watching_history": inputs_b[j],
+                    "sequence_ids": sid_b[j],
+                    "retrieved_movies": retrieve_movies_list,
+                    "retrieval_flags": retrieval_flags,
+                    "raw_response": raw_texts[j],
+                    "parsed_ranking": output[j],
+                    "parsed_letters": [chr(ord('A') + idx) for idx in output[j][:NUM_ANSWERS]],
+                    "gold_answer": golds[j],
+                    "gold_letter": chr(ord('A') + golds[j]),
+                    "soft_injection_enabled": True,
+                })
             n = len(recalls[RECALL_KS[0]])
             print(", ".join(f"Recall@{k}: {sum(recalls[k]) / n}" for k in RECALL_KS))
 
@@ -126,6 +144,16 @@ The {NUM_ANSWERS} ranked letters are:""")
     with open(result_path, "w") as f:
         json.dump(final_results, f, indent=2)
     print(f"Results saved to {result_path}")
+
+    # Save detailed logs
+    raw_dir = "output/raw"
+    os.makedirs(raw_dir, exist_ok=True)
+    log_name = f"{args.llm_model_name}_{args.gnn_model_name}_{args.dataset}_detailed.jsonl"
+    log_path = os.path.join(raw_dir, log_name)
+    with open(log_path, "w") as f:
+        for entry in detailed_logs:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"Detailed logs saved to {log_path}")
 
 
 if __name__ == "__main__":
